@@ -7,10 +7,27 @@ from pathlib import Path
 import logging
 import shutil
 import re
+from flask import Flask
+import threading
+import subprocess
 
 # Logging setup
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+bot = Flask(__name__)
+
+@bot.route('/')
+def hello_world():
+    return 'Hello, World!'
+
+@bot.route('/health')
+def health_check():
+    return 'Healthy', 200
+
+def run_flask():
+    bot.run(host='0.0.0.0', port=8080)
+
 
 # Load environment variables
 API_ID = os.getenv("TELEGRAM_API_ID", "1917094")
@@ -18,7 +35,7 @@ API_HASH = os.getenv("TELEGRAM_API_HASH", "43dbeb43f27f99752b44db7493bf38ad")
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "7924405763:AAF0Kt4hxJ5_yb3OqOET18Q0nGYFLKs7vcc")
 
 # Initialize the bot
-bot = Client("pdf_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+app = Client("pdf_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 # Temporary directory for user files
 temp_dir = Path(tempfile.gettempdir())
@@ -59,7 +76,7 @@ def split_pdf(input_file, output_file, page_numbers):
         raise e
 
 # Handle "/start" command
-@bot.on_message(filters.command("start"))
+@app.on_message(filters.command("start"))
 async def start_handler(client, message):
     username = message.from_user.username
     await message.reply_photo(
@@ -88,7 +105,7 @@ async def help_handler(client, message):
     await message.reply(HELP_MSG)
 
 # Handle PDF uploads
-@bot.on_message(filters.document)
+@app.on_message(filters.document)
 async def pdf_handler(client, message):
     if message.document.mime_type == "application/pdf":
         chat_id = str(message.chat.id)
@@ -108,7 +125,7 @@ async def pdf_handler(client, message):
         await message.reply("This file is not a PDF. Please upload a valid PDF file.")
 
 # Handle "/merge" command
-@bot.on_message(filters.command("merge"))
+@app.on_message(filters.command("merge"))
 async def merge_handler(client, message):
     chat_id = str(message.chat.id)
     user_dir = temp_dir / chat_id
@@ -156,7 +173,7 @@ async def split_handler(client, message):
 
 
 # Handle user's reply for naming the file
-@bot.on_message(filters.text & filters.create(lambda _, __, msg: not msg.text.startswith("/")))
+@app.on_message(filters.text & filters.create(lambda _, __, msg: not msg.text.startswith("/")))
 async def rename_output_handler(client, message):
     chat_id = str(message.chat.id)
     state = user_states.get(chat_id)
@@ -192,7 +209,9 @@ async def rename_output_handler(client, message):
 """)
 
 
-# Run the bot
-if __name__ == "__main__":
-    logger.info("Starting bot...")
-    bot.run()
+# Start the Flask server in a separate thread
+if __name__ == '__main__':
+    threading.Thread(target=run_flask).start()
+    
+    # Start the Pyrogram Client
+    app.run()
