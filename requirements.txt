@@ -2,3 +2,4 @@ pyrogram
 PyPDF2
 TgCrypto
 Flask
+aiofiles
