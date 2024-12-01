@@ -1,14 +1,21 @@
-# Use an official Python runtime as a parent image
 FROM python:3.9-slim
 
-# Set the working directory
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
+
+# Set working directory
 WORKDIR /app
 
-# Copy the current directory contents into the container at /app
-COPY . /app
-
-# Install any needed dependencies specified in requirements.txt
+# Install dependencies
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Run the bot when the container launches
+# Copy application files
+COPY . .
+
+# Expose Flask's default port
+EXPOSE 8000
+
+# Run the bot
 CMD ["python", "PDF_Bot.py"]
