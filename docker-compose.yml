@@ -1,0 +1,16 @@
+version: "3.9"
+
+services:
+  flask:
+    build:
+      context: .
+    command: gunicorn -w 4 -b 0.0.0.0:8000 PDF_Bot:bot
+    ports:
+      - "8000:8000"
+    restart: always
+
+  pyrogram:
+    build:
+      context: .
+    command: python PDF_Bot.py
+    restart: always
