@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 API_ID = os.getenv("TELEGRAM_API_ID", "1917094")
 API_HASH = os.getenv("TELEGRAM_API_HASH", "43dbeb43f27f99752b44db7493bf38ad")
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "6941473830:AAFnSuGhyDAU1LuOoBHQGBpeE1Im28-pV8k")
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "7924405763:AAF0Kt4hxJ5_yb3OqOET18Q0nGYFLKs7vcc")
 
 # Initialize the bot
 bot = Client("pdf_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
