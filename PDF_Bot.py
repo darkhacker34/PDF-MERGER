@@ -7,6 +7,8 @@ from pathlib import Path
 import logging
 import shutil
 import re
+from flask import Flask
+from threading import Thread
 
 # Logging setup
 logging.basicConfig(level=logging.INFO)
@@ -19,6 +21,9 @@ BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "6941473830:AAFnSuGhyDAU1LuOoBHQGBpe
 
 # Initialize the bot
 bot = Client("pdf_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+
+# Flask setup
+app = Flask(__name__)
 
 # Temporary directory for user files
 temp_dir = Path(tempfile.gettempdir())
@@ -65,7 +70,7 @@ async def start_handler(client, message):
     await message.reply_photo(
         photo="https://raw.githubusercontent.com/darkhacker34/PDF-MERGER/refs/heads/main/MasterGreenLogo.jpg",
         caption=f"Hello @{username},\n\nSend me the PDF files, and I can merge or split them.\n\nUse /help for instructions!",
-        reply_markup=InlineKeyboardMarkup([[
+        reply_markup=InlineKeyboardMarkup([[ 
             InlineKeyboardButton("👤 OWNER", url="https://t.me/master_green_uae"),
             InlineKeyboardButton("🌐 WEBSITE", url="https://www.mastergreen.ae")
         ]])
@@ -153,8 +158,6 @@ async def split_handler(client, message):
         await message.reply(f"Error splitting the PDF: {e}")
         shutil.rmtree(user_dir, ignore_errors=True)  # Clean up user files
 
-
-
 # Handle user's reply for naming the file
 @bot.on_message(filters.text & filters.create(lambda _, __, msg: not msg.text.startswith("/")))
 async def rename_output_handler(client, message):
@@ -188,11 +191,24 @@ async def rename_output_handler(client, message):
 
 ʜᴏᴡ ᴀʙᴏᴜᴛ ʏᴏᴜ sᴇɴᴅ ᴍᴇ ᴀ ᴘᴅғ ᴀɴᴅ ʟᴇᴛ ᴍᴇ ᴅᴏ ᴡʜᴀᴛ ɪ ᴅᴏ ʙᴇsᴛ—ʙᴇɪɴɢ ᴀ **ᴘᴅғ ᴡɪᴢᴀʀᴅ** 🧙‍♂️✨. ɪ ᴘʀᴏᴍɪsᴇ, ɴᴏ ᴍᴏʀᴇ sᴜʀᴘʀɪsᴇs!
 
-
 """)
 
+# Flask routes
+@app.route("/")
+def home():
+    return "PDF Bot is running!"
 
-# Run the bot
+@app.route("/status")
+def status():
+    return "Bot and Flask server are running!"
+
+# Run the Flask app in a separate thread
+def run_flask():
+    app.run(host="0.0.0.0", port=8000)
+
+# Run the bot and Flask server
 if __name__ == "__main__":
-    logger.info("Starting bot...")
+    logger.info("Starting bot and Flask server...")
+    flask_thread = Thread(target=run_flask)
+    flask_thread.start()
     bot.run()
