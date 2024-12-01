@@ -1,3 +1,4 @@
+
 from pyrogram import Client, filters
 from PyPDF2 import PdfReader, PdfWriter
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -26,13 +27,13 @@ def health_check():
     return 'Healthy', 200
 
 def run_flask():
-    bot.run(host='0.0.0.0', port=8000)
+    bot.run(host='0.0.0.0', port=8080)
 
 
 # Load environment variables
 API_ID = os.getenv("TELEGRAM_API_ID", "1917094")
 API_HASH = os.getenv("TELEGRAM_API_HASH", "43dbeb43f27f99752b44db7493bf38ad")
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "7924405763:AAF0Kt4hxJ5_yb3OqOET18Q0nGYFLKs7vcc")
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "6941473830:AAFnSuGhyDAU1LuOoBHQGBpeE1Im28-pV8k")
 
 # Initialize the bot
 app = Client("pdf_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
