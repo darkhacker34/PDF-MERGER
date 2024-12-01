@@ -1,164 +1,198 @@
+from pyrogram import Client, filters
+from PyPDF2 import PdfReader, PdfWriter
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+import os
+import tempfile
+from pathlib import Path
 import logging
 import shutil
-from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove
-from pyrogram.handlers import MessageHandler
-from PyPDF2 import PdfMerger, PdfReader
-from pathlib import Path
-import asyncio
-import time
+import re
 
-# Set up logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+# Logging setup
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Load environment variables
+API_ID = os.getenv("TELEGRAM_API_ID", "1917094")
+API_HASH = os.getenv("TELEGRAM_API_HASH", "43dbeb43f27f99752b44db7493bf38ad")
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "6941473830:AAFnSuGhyDAU1LuOoBHQGBpeE1Im28-pV8k")
+
 # Initialize the bot
-API_ID = "1917094"
-API_HASH = "43dbeb43f27f99752b44db7493bf38ad"
-BOT_TOKEN = "6941473830:AAHrNNHnu8jaHdbMR_JSTwjncASwNF7OQIA"
+bot = Client("pdf_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-app = Client("pdf_merge_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+# Temporary directory for user files
+temp_dir = Path(tempfile.gettempdir())
 
-# Temporary storage for user files
-BASE_DIR = Path("user_files")
+# State tracking for user operations
+user_states = {}
 
-def create_user_folder(user_id: str) -> Path:
-    """Create a user folder if it doesn't exist."""
-    user_folder = BASE_DIR / str(user_id)
-    user_folder.mkdir(parents=True, exist_ok=True)
-    return user_folder
+# Helper function to validate PDF file names
+def is_valid_pdf_name(file_name):
+    return bool(re.match(r'^[\w,\s-]+\.[Pp][Dd][Ff]$', file_name))
 
-def clean_user_folder(user_folder: Path):
-    """Remove the user's folder and its contents."""
+# Helper function to merge PDFs using PyPDF2
+def merge_pdfs(pdf_list, output_path):
     try:
-        shutil.rmtree(user_folder)
+        writer = PdfWriter()
+        for pdf_path in pdf_list:
+            reader = PdfReader(pdf_path)
+            for page in reader.pages:
+                writer.add_page(page)
+        with open(output_path, "wb") as output_pdf:
+            writer.write(output_pdf)
     except Exception as e:
-        logger.error(f"Failed to clean user folder {user_folder}: {e}")
+        logger.error(f"Error merging PDFs: {e}")
+        raise e
 
-@app.on_message(filters.command('start'))
-async def start(bot, msg):
-    """Handle the '/start' command."""
-    username = msg.from_user.username
-    await msg.reply_photo(
-        photo="https://raw.githubusercontent.com/darkhacker34/PDF-MERGER/main/MasterGreenLogo.jpg",
-        caption=f"𝙷𝚢  @{username}🤫..!!\n𝚆𝚎𝚕𝚌𝚘𝚖𝚎 𝚃𝚘 Master Green Bot.!\n\n𝗠𝗲𝗿𝗴𝗲 𝗬𝗼𝘂𝗿 𝗠𝗚 𝗤𝘂𝗼𝘁𝗮𝘁𝗶𝗼𝗻",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("👤 OWNER", url="https://t.me/master_green_uae")],
-            [InlineKeyboardButton("🌐 WEBSITE", url="https://www.mastergreen.ae")]
-        ])
+# Helper function to split a PDF
+def split_pdf(input_file, output_file, page_numbers):
+    try:
+        reader = PdfReader(input_file)
+        writer = PdfWriter()
+        for page in page_numbers:
+            if page - 1 < len(reader.pages):
+                writer.add_page(reader.pages[page - 1])
+        with open(output_file, "wb") as out_pdf:
+            writer.write(out_pdf)
+    except Exception as e:
+        logger.error(f"Error splitting PDF: {e}")
+        raise e
+
+# Handle "/start" command
+@bot.on_message(filters.command("start"))
+async def start_handler(client, message):
+    username = message.from_user.username
+    await message.reply_photo(
+        photo="https://raw.githubusercontent.com/darkhacker34/PDF-MERGER/refs/heads/main/MasterGreenLogo.jpg",
+        caption=f"Hello @{username},\n\nSend me the PDF files, and I can merge or split them.\n\nUse /help for instructions!",
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("👤 OWNER", url="https://t.me/master_green_uae"),
+            InlineKeyboardButton("🌐 WEBSITE", url="https://www.mastergreen.ae")
+        ]])
     )
 
-@app.on_message(filters.private & filters.document)
-async def handle_pdf(client, message):
-    """Handle PDF uploads from the user."""
+# Help message
+HELP_MSG = """
+Commands:
+
+➡ /merge - Merge multiple PDFs (upload all PDFs first and send the command).
+
+➡ /split (start-end) - Split a PDF by specifying the page range.
+
+e.g., /split 1-3 (for pages 1 to 3) or /split 2-2 (for a single page).
+"""
+
+# Handle "/help" command
+@bot.on_message(filters.command("help"))
+async def help_handler(client, message):
+    await message.reply(HELP_MSG)
+
+# Handle PDF uploads
+@bot.on_message(filters.document)
+async def pdf_handler(client, message):
     if message.document.mime_type == "application/pdf":
-        user_id = str(message.from_user.id)
-        user_folder = create_user_folder(user_id)
+        chat_id = str(message.chat.id)
+        user_dir = temp_dir / chat_id
+        user_dir.mkdir(exist_ok=True)
 
-        # Count existing PDFs to determine the new file name
-        pdf_count = len([f for f in user_folder.iterdir() if f.suffix == ".pdf"]) + 1
-        file_name = f"{pdf_count}.pdf"
-        file_path = user_folder / file_name
+        # Determine the next file name (1.pdf, 2.pdf, etc.)
+        existing_files = list(user_dir.glob("*.pdf"))
+        next_file_number = len(existing_files) + 1
+        file_path = user_dir / f"{next_file_number}.pdf"
 
-        try:
-            # Download and save the file with progress updates
-            await message.download(file_path)
-            await message.reply(
-                f"PDF saved as {file_name}. Send another PDF or click Merge to combine them.",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("Merge PDFs", callback_data="merge")]
-                ])
-            )
-        except Exception as e:
-            await message.reply(f"Failed to download the file: {str(e)}")
-            logger.error(f"Failed to download file {file_name}: {e}")
+        # Download and save the file
+        await message.download(file_path)
+        await message.reply(f"PDF file saved as {file_path.name}.\n\n"
+                            f"Use /merge to combine files or /split <start>-<end> to split.")
     else:
-        await message.reply("Please send a valid PDF file.")
+        await message.reply("This file is not a PDF. Please upload a valid PDF file.")
 
-@app.on_callback_query(filters.regex("merge"))
-async def merge_pdfs(client, callback_query):
-    """Merge all uploaded PDFs and send back to the user with progress updates."""
-    user_id = str(callback_query.from_user.id)
-    user_folder = BASE_DIR / user_id
-
-    if not user_folder.exists() or len(list(user_folder.glob("*.pdf"))) < 2:
-        await callback_query.message.reply("You need to upload at least two PDFs to merge.")
+# Handle "/merge" command
+@bot.on_message(filters.command("merge"))
+async def merge_handler(client, message):
+    chat_id = str(message.chat.id)
+    user_dir = temp_dir / chat_id
+    pdf_files = sorted(user_dir.glob("*.pdf"))  # Ensure sequential order
+    
+    if len(pdf_files) < 2:
+        await message.reply("Please upload at least two PDF files to merge.")
         return
 
-    # Ask user for a new file name for the merged PDF
-    await callback_query.message.reply(
-        "Please enter a new name for the merged PDF (without extension).",
-        reply_markup=ReplyKeyboardRemove()
-    )
-    app.add_handler(MessageHandler(handle_rename, filters.private))
+    output_path = user_dir / "merged.pdf"
+    try:
+        merge_pdfs(pdf_files, output_path)
+        await message.reply("Merging Complete!\nPlease Enter A New Name For The PDF With Extension. (eg:- `MG_Quotation.pdf`).")
+        user_states[chat_id] = {"operation": "merge", "file_path": output_path}
+    except Exception as e:
+        await message.reply(f"Error during merging: {e}")
+        shutil.rmtree(user_dir, ignore_errors=True)  # Clean up user files
 
-async def handle_rename(client, message):
-    """Handle the new name for the merged PDF."""
-    user_id = str(message.from_user.id)
-    user_folder = BASE_DIR / user_id
-    new_pdf_name = message.text.strip()  # Get new file name from the user
-    output_pdf = user_folder / f"{new_pdf_name}.pdf"
-
-    if not new_pdf_name:
-        await message.reply("The name cannot be empty. Please provide a valid name.")
+# Handle "/split" command
+@bot.on_message(filters.command("split"))
+async def split_handler(client, message):
+    chat_id = str(message.chat.id)
+    user_dir = temp_dir / chat_id
+    pdf_files = list(user_dir.glob("*.pdf"))
+    
+    if len(pdf_files) != 1:
+        await message.reply("Please upload a single PDF file to split.")
         return
 
-    # Acknowledge the user's input and start the merge process
-    response_message = await message.reply("Merging PDFs... Please wait.")
-
-    # Start the merge task in a separate thread
-    await merge_pdfs_task(client, response_message, user_folder, output_pdf)
-
-async def merge_pdfs_task(client, response_message, user_folder, output_pdf):
-    """Handle PDF merging asynchronously with progress updates."""
-    merger = PdfMerger()
+    args = message.text.split()
+    if len(args) != 2 or "-" not in args[1]:
+        await message.reply("Invalid command format! Use /split <start>-<end> (e.g., /split 1-3).")
+        return
 
     try:
-        pdf_files = sorted(user_folder.glob("*.pdf"), key=lambda f: int(f.stem))  # Sorting PDFs by filename
-        total_pdfs = len(pdf_files)
-        current_pdf = 0
-        progress_indicator = "○ ○ ○ ○ ○"  # Placeholder for progress
-
-        # Update progress periodically, reduce the frequency of updates
-        for file_path in pdf_files:
-            try:
-                # Check for validity before adding to merger
-                PdfReader(str(file_path))  # Check if it's a valid PDF
-                merger.append(str(file_path))
-                current_pdf += 1
-
-                # Update progress every 1 second or after each PDF processed
-                progress_indicator = "●" * current_pdf + " ○" * (total_pdfs - current_pdf)
-                await response_message.edit_text(
-                    f"Processing PDF {current_pdf} of {total_pdfs}...\nProgress: {progress_indicator}"
-                )
-                await asyncio.sleep(1)  # Sleep to simulate progress and avoid overwhelming Telegram with too many updates
-
-            except Exception as e:
-                await response_message.reply(f"Skipped {file_path.name}: {str(e)}")
-                logger.warning(f"Failed to add {file_path.name} to merger: {e}")
-
-        # Write the merged PDF to output
-        merger.write(str(output_pdf))
-        merger.close()
-
-        # Send the merged PDF back to the user
-        await response_message.edit_text("Merging complete. Sending the merged file...")
-        await response_message.reply_document(
-            document=str(output_pdf), caption="Here is your merged PDF!"
-        )
+        start, end = map(int, args[1].split("-"))
+        output_path = user_dir / "split.pdf"
+        split_pdf(pdf_files[0], output_path, range(start, end + 1))
+        await message.reply("Splitting Complete!\nPlease Enter A New Name For The PDF With Extension. (eg:- `MG_Quotation.pdf`).")
+        user_states[chat_id] = {"operation": "split", "file_path": output_path}
     except Exception as e:
-        await response_message.reply(f"An error occurred: {str(e)}")
-        logger.error(f"Error during PDF merge: {e}")
-    finally:
-        # Clean up the user's folder after the merge
-        clean_user_folder(user_folder)
+        await message.reply(f"Error splitting the PDF: {e}")
+        shutil.rmtree(user_dir, ignore_errors=True)  # Clean up user files
 
+
+
+# Handle user's reply for naming the file
+@bot.on_message(filters.text & filters.create(lambda _, __, msg: not msg.text.startswith("/")))
+async def rename_output_handler(client, message):
+    chat_id = str(message.chat.id)
+    state = user_states.get(chat_id)
+
+    if state:
+        desired_name = message.text.strip()
+        if not is_valid_pdf_name(desired_name):
+            await message.reply("Invalid file name! Please ensure it ends with `.pdf` and contains no special characters.")
+            return
+
+        # Rename the file
+        user_dir = temp_dir / chat_id
+        new_path = user_dir / desired_name
+        os.rename(state["file_path"], new_path)
+        
+        # Send the renamed file to the user
+        await message.reply_document(new_path)
+        await message.reply("Here is your file!")
+        
+        # Clean up
+        shutil.rmtree(user_dir, ignore_errors=True)  # Remove all files for the user
+        user_states.pop(chat_id, None)  # Clear state
+    else:
+        await message.reply("""
+
+ᴏʜ, ʀᴇᴀʟʟʏ? ᴛʜᴀᴛ’s ᴡʜᴀᴛ ʏᴏᴜ’ᴠᴇ ɢᴏᴛ ғᴏʀ ᴍᴇ? 🙄
+
+ɪ’ᴍ ᴊᴜsᴛ ʜᴇʀᴇ ᴛᴏ ʜᴀɴᴅʟᴇ ᴘᴅғs, ɴᴏᴛ ʀᴇᴀᴅ ʏᴏᴜʀ ᴍɪɴᴅ!
+
+ʜᴏᴡ ᴀʙᴏᴜᴛ ʏᴏᴜ sᴇɴᴅ ᴍᴇ ᴀ ᴘᴅғ ᴀɴᴅ ʟᴇᴛ ᴍᴇ ᴅᴏ ᴡʜᴀᴛ ɪ ᴅᴏ ʙᴇsᴛ—ʙᴇɪɴɢ ᴀ **ᴘᴅғ ᴡɪᴢᴀʀᴅ** 🧙‍♂️✨. ɪ ᴘʀᴏᴍɪsᴇ, ɴᴏ ᴍᴏʀᴇ sᴜʀᴘʀɪsᴇs!
+
+
+""")
+
+
+# Run the bot
 if __name__ == "__main__":
-    if not BASE_DIR.exists():
-        BASE_DIR.mkdir(parents=True, exist_ok=True)
-    logger.info("Bot is running...")
-    app.run()
+    logger.info("Starting bot...")
+    bot.run()
