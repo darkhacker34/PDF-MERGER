@@ -27,7 +27,7 @@ def health_check():
     return 'Healthy', 200
 
 def run_flask():
-    bot.run(host='0.0.0.0', port=8080)
+    bot.run(host='0.0.0.0', port=8000)
 
 
 # Load environment variables
