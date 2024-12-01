@@ -26,7 +26,7 @@ def health_check():
     return 'Healthy', 200
 
 def run_flask():
-    bot.run(host='0.0.0.0', port=8080)
+    bot.run(host='0.0.0.0', port=8000)
 
 
 # Load environment variables
@@ -100,7 +100,7 @@ e.g., /split 1-3 (for pages 1 to 3) or /split 2-2 (for a single page).
 """
 
 # Handle "/help" command
-@bot.on_message(filters.command("help"))
+@app.on_message(filters.command("help"))
 async def help_handler(client, message):
     await message.reply(HELP_MSG)
 
@@ -145,7 +145,7 @@ async def merge_handler(client, message):
         shutil.rmtree(user_dir, ignore_errors=True)  # Clean up user files
 
 # Handle "/split" command
-@bot.on_message(filters.command("split"))
+@app.on_message(filters.command("split"))
 async def split_handler(client, message):
     chat_id = str(message.chat.id)
     user_dir = temp_dir / chat_id
