@@ -1,4 +1,3 @@
-
 from pyrogram import Client, filters
 from PyPDF2 import PdfReader, PdfWriter
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -83,7 +82,7 @@ async def start_handler(client, message):
     await message.reply_photo(
         photo="https://raw.githubusercontent.com/darkhacker34/PDF-MERGER/refs/heads/main/MasterGreenLogo.jpg",
         caption=f"Hello @{username},\n\nSend me the PDF files, and I can merge or split them.\n\nUse /help for instructions!",
-        reply_markup=InlineKeyboardMarkup([[
+        reply_markup=InlineKeyboardMarkup([[ 
             InlineKeyboardButton("👤 OWNER", url="https://t.me/master_green_uae"),
             InlineKeyboardButton("🌐 WEBSITE", url="https://www.mastergreen.ae")
         ]])
@@ -105,6 +104,22 @@ e.g., /split 1-3 (for pages 1 to 3) or /split 2-2 (for a single page).
 async def help_handler(client, message):
     await message.reply(HELP_MSG)
 
+
+# Helper function to display progress in Telegram with 10 graphical blocks
+async def progress(current, total, message, file_name):
+    progress_percent = (current / total) * 100
+    progress_blocks = int(progress_percent // 10)  # 10 blocks for a 100% bar
+
+    # Graphical progress bar with 10 blocks
+    progress_bar = "🟩" * progress_blocks + "⬜" * (10 - progress_blocks)
+    
+    # Textual representation with graphical blocks
+    progress_text = f"<b>Downloading {file_name}:</b>\n[{progress_bar}] <i>{progress_percent:.1f}%</i>"
+    
+    # Update the message with the new progress bar
+    await message.edit(progress_text)
+
+
 # Handle PDF uploads
 @app.on_message(filters.document)
 async def pdf_handler(client, message):
@@ -118,10 +133,10 @@ async def pdf_handler(client, message):
         next_file_number = len(existing_files) + 1
         file_path = user_dir / f"{next_file_number}.pdf"
 
-        # Download and save the file
-        await message.download(file_path)
-        await message.reply(f"PDF file saved as {file_path.name}.\n\n"
-                            f"Use /merge to combine files or /split <start>-<end> to split.")
+        # Download and save the file with progress bar
+        download_msg = await message.reply("Starting to download your PDF...")
+        await message.download(file_path, progress=progress, progress_args=(download_msg, message.document.file_name))
+        await download_msg.edit(f"PDF file saved as {file_path.name}.\n\nUse /merge to combine files or /split <start>-<end> to split.")
     else:
         await message.reply("This file is not a PDF. Please upload a valid PDF file.")
 
@@ -171,8 +186,6 @@ async def split_handler(client, message):
         await message.reply(f"Error splitting the PDF: {e}")
         shutil.rmtree(user_dir, ignore_errors=True)  # Clean up user files
 
-
-
 # Handle user's reply for naming the file
 @app.on_message(filters.text & filters.create(lambda _, __, msg: not msg.text.startswith("/")))
 async def rename_output_handler(client, message):
@@ -190,9 +203,10 @@ async def rename_output_handler(client, message):
         new_path = user_dir / desired_name
         os.rename(state["file_path"], new_path)
         
-        # Send the renamed file to the user
-        await message.reply_document(new_path)
-        await message.reply("Here is your file!")
+        # Send the renamed file to the user with progress tracking
+        upload_msg = await message.reply("Uploading your file, please wait...")
+        await message.reply_document(new_path, progress=progress, progress_args=(upload_msg, desired_name))
+        await upload_msg.edit(f"Here is your file: {desired_name}")
         
         # Clean up
         shutil.rmtree(user_dir, ignore_errors=True)  # Remove all files for the user
@@ -208,7 +222,6 @@ async def rename_output_handler(client, message):
 
 
 """)
-
 
 # Start the Flask server in a separate thread
 if __name__ == '__main__':
