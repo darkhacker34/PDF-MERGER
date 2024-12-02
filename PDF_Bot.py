@@ -28,7 +28,6 @@ def health_check():
 def run_flask():
     bot.run(host='0.0.0.0', port=8000)
 
-
 # Load environment variables
 API_ID = os.getenv("TELEGRAM_API_ID", "1917094")
 API_HASH = os.getenv("TELEGRAM_API_HASH", "43dbeb43f27f99752b44db7493bf38ad")
@@ -42,10 +41,6 @@ temp_dir = Path(tempfile.gettempdir())
 
 # State tracking for user operations
 user_states = {}
-
-# Helper function to validate PDF file names
-def is_valid_pdf_name(file_name):
-    return bool(re.match(r'^[\w,\s-]+\.[Pp][Dd][Ff]$', file_name))
 
 # Helper function to merge PDFs using PyPDF2
 def merge_pdfs(pdf_list, output_path):
@@ -75,7 +70,6 @@ def split_pdf(input_file, output_file, page_numbers):
         logger.error(f"Error splitting PDF: {e}")
         raise e
 
-
 # Function to download thumbnail
 def download_thumbnail(url, save_path):
     try:
@@ -87,12 +81,12 @@ def download_thumbnail(url, save_path):
     except Exception as e:
         logger.error(f"Failed to download thumbnail: {e}")
         return None
-    
+
 @app.on_message(filters.command("start"))
 async def start_handler(client, message):
     chat_id = str(message.chat.id)
     user_dir = temp_dir / chat_id
-    
+
     # Clear any previous files from the user's directory
     if user_dir.exists():
         shutil.rmtree(user_dir)  # Delete the entire directory
@@ -124,7 +118,6 @@ e.g., /split 1-3 (for pages 1 to 3) or /split 2-2 (for a single page).
 async def help_handler(client, message):
     await message.reply(HELP_MSG)
 
-
 # Helper function to display progress in Telegram with 10 graphical blocks
 async def progress(current, total, message, file_name):
     progress_percent = (current / total) * 100
@@ -139,7 +132,6 @@ async def progress(current, total, message, file_name):
     # Update the message with the new progress bar
     await message.edit(progress_text)
 
-
 # Handle PDF uploads
 @app.on_message(filters.document)
 async def pdf_handler(client, message):
@@ -153,6 +145,10 @@ async def pdf_handler(client, message):
         next_file_number = len(existing_files) + 1
         file_path = user_dir / f"{next_file_number}.pdf"
 
+        # Save the name of the first PDF uploaded by the user (without the extension)
+        if next_file_number == 1:
+            user_states[chat_id] = {"first_pdf_base_name": os.path.splitext(message.document.file_name)[0]}
+
         # Download and save the file with progress bar
         download_msg = await message.reply("Starting to download your PDF...")
         await message.download(file_path, progress=progress, progress_args=(download_msg, message.document.file_name))
@@ -160,33 +156,33 @@ async def pdf_handler(client, message):
     else:
         await message.reply("This file is not a PDF. Please upload a valid PDF file.")
 
-# Handle "/merge" command
 @app.on_message(filters.command("merge"))
 async def merge_handler(client, message):
     chat_id = str(message.chat.id)
     user_dir = temp_dir / chat_id
     pdf_files = sorted(user_dir.glob("*.pdf"))  # Ensure sequential order
-    
+
     if len(pdf_files) < 2:
         await message.reply("Please upload at least two PDF files to merge.")
         return
 
-    output_path = user_dir / "merged.pdf"
+    # Use the base name of the first PDF uploaded, excluding the extension
+    first_pdf_base_name = user_states[chat_id]["first_pdf_base_name"]
+    output_path = user_dir / f"{first_pdf_base_name}.pdf"
+
     try:
         merge_pdfs(pdf_files, output_path)
-        await message.reply("Merging Complete!\n\nPlease Enter A New Name For The PDF With Extension. (eg:- MG_Quotation.pdf).")
-        user_states[chat_id] = {"operation": "merge", "file_path": output_path}
+        await send_file_to_user(chat_id, message, output_path)
     except Exception as e:
         await message.reply(f"Error during merging: {e}")
         shutil.rmtree(user_dir, ignore_errors=True)  # Clean up user files
 
-# Handle "/split" command
 @app.on_message(filters.command("split"))
 async def split_handler(client, message):
     chat_id = str(message.chat.id)
     user_dir = temp_dir / chat_id
     pdf_files = list(user_dir.glob("*.pdf"))
-    
+
     if len(pdf_files) != 1:
         await message.reply("Please upload a single PDF file to split.")
         return
@@ -198,62 +194,37 @@ async def split_handler(client, message):
 
     try:
         start, end = map(int, args[1].split("-"))
-        output_path = user_dir / "split.pdf"
+        first_pdf_base_name = user_states[chat_id]["first_pdf_base_name"]
+        output_path = user_dir / f"{first_pdf_base_name}.pdf"
+
         split_pdf(pdf_files[0], output_path, range(start, end + 1))
-        await message.reply("Splitting Complete!\n\nPlease Enter A New Name For The PDF With Extension. (eg:- MG_Quotation.pdf).")
-        user_states[chat_id] = {"operation": "split", "file_path": output_path}
+        await send_file_to_user(chat_id, message, output_path)
     except Exception as e:
         await message.reply(f"Error splitting the PDF: {e}")
         shutil.rmtree(user_dir, ignore_errors=True)  # Clean up user files
 
-# Handle user's reply for naming the file
-@app.on_message(filters.text & filters.create(lambda _, __, msg: not msg.text.startswith("/")))
-async def rename_output_handler(client, message):
-    chat_id = str(message.chat.id)
-    state = user_states.get(chat_id)
+# Helper function to send a file to the user
+async def send_file_to_user(chat_id, message, file_path):
+    thump = "https://raw.githubusercontent.com/darkhacker34/PDF-MERGER/refs/heads/main/MasterGreenLogo.jpg"
 
-    if state:
-        desired_name = message.text.strip()
-        if not is_valid_pdf_name(desired_name):
-            await message.reply("Invalid file name! Please ensure it ends with .pdf and contains no special characters.")
-            return
+    # Path to save the downloaded thumbnail
+    thumb_path = temp_dir / "thumbnail.jpg"
+    if not thumb_path.exists():
+        download_thumbnail(thump, thumb_path)
 
-        # Rename the file
-        user_dir = temp_dir / chat_id
-        new_path = user_dir / desired_name
-        os.rename(state["file_path"], new_path)
+    # Send the file to the user with a progress bar
+    upload_msg = await message.reply("Uploading your file, please wait...")
+    await message.reply_document(file_path, progress=progress, thumb=str(thumb_path), progress_args=(upload_msg, file_path.name))
+    await upload_msg.edit(f"Here is your file: {file_path.name}")
 
-        thump="https://raw.githubusercontent.com/darkhacker34/PDF-MERGER/refs/heads/main/MasterGreenLogo.jpg"
-
-        # Path to save the downloaded thumbnail
-        thumb_path = temp_dir / "thumbnail.jpg"
-        if not thumb_path.exists():
-            download_thumbnail(thump, thumb_path)
-
-
-        # Send the renamed file to the user with progress tracking
-        upload_msg = await message.reply("Uploading your file, please wait...")
-        await message.reply_document(new_path, progress=progress, thumb=str(thumb_path), progress_args=(upload_msg, desired_name))
-        await upload_msg.edit(f"Here is your file: {desired_name}")
-        
-        # Clean up
-        shutil.rmtree(user_dir, ignore_errors=True)  # Remove all files for the user
-        user_states.pop(chat_id, None)  # Clear state
-    else:
-        await message.reply("""
-
-ᴏʜ, ʀᴇᴀʟʟʏ? ᴛʜᴀᴛ’s ᴡʜᴀᴛ ʏᴏᴜ’ᴠᴇ ɢᴏᴛ ғᴏʀ ᴍᴇ? 🙄
-
-ɪ’ᴍ ᴊᴜsᴛ ʜᴇʀᴇ ᴛᴏ ʜᴀɴᴅʟᴇ ᴘᴅғs, ɴᴏᴛ ʀᴇᴀᴅ ʏᴏᴜʀ ᴍɪɴᴅ!
-
-ʜᴏᴡ ᴀʙᴏᴜᴛ ʏᴏᴜ sᴇɴᴅ ᴍᴇ ᴀ ᴘᴅғ ᴀɴᴅ ʟᴇᴛ ᴍᴇ ᴅᴏ ᴡʜᴀᴛ ɪ ᴅᴏ ʙᴇsᴛ—ʙᴇɪɴɢ ᴀ **ᴘᴅғ ᴡɪᴢᴀʀᴅ** 🧙‍♂️✨. ɪ ᴘʀᴏᴍɪsᴇ, ɴᴏ ᴍᴏʀᴇ sᴜʀᴘʀɪsᴇs!
-
-
-""")
+    # Clean up user files after sending the file
+    user_dir = temp_dir / chat_id
+    shutil.rmtree(user_dir, ignore_errors=True)  # Remove all files for the user
+    user_states.pop(chat_id, None)  # Clear state
 
 # Start the Flask server in a separate thread
 if __name__ == '__main__':
     threading.Thread(target=run_flask).start()
-    
+
     # Start the Pyrogram Client
     app.run()
