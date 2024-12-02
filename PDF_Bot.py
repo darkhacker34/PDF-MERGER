@@ -9,7 +9,7 @@ import shutil
 import re
 from flask import Flask
 import threading
-import subprocess
+import requests
 
 # Logging setup
 logging.basicConfig(level=logging.INFO)
@@ -75,9 +75,29 @@ def split_pdf(input_file, output_file, page_numbers):
         logger.error(f"Error splitting PDF: {e}")
         raise e
 
-# Handle "/start" command
+
+# Function to download thumbnail
+def download_thumbnail(url, save_path):
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        with open(save_path, "wb") as file:
+            file.write(response.content)
+        return save_path
+    except Exception as e:
+        logger.error(f"Failed to download thumbnail: {e}")
+        return None
+    
 @app.on_message(filters.command("start"))
 async def start_handler(client, message):
+    chat_id = str(message.chat.id)
+    user_dir = temp_dir / chat_id
+    
+    # Clear any previous files from the user's directory
+    if user_dir.exists():
+        shutil.rmtree(user_dir)  # Delete the entire directory
+    user_dir.mkdir(exist_ok=True)  # Recreate the directory
+
     username = message.from_user.username
     await message.reply_photo(
         photo="https://raw.githubusercontent.com/darkhacker34/PDF-MERGER/refs/heads/main/MasterGreenLogo.jpg",
@@ -202,10 +222,18 @@ async def rename_output_handler(client, message):
         user_dir = temp_dir / chat_id
         new_path = user_dir / desired_name
         os.rename(state["file_path"], new_path)
-        
+
+        thump="https://raw.githubusercontent.com/darkhacker34/PDF-MERGER/refs/heads/main/MasterGreenLogo.jpg"
+
+        # Path to save the downloaded thumbnail
+        thumb_path = temp_dir / "thumbnail.jpg"
+        if not thumb_path.exists():
+            download_thumbnail(thump, thumb_path)
+
+
         # Send the renamed file to the user with progress tracking
         upload_msg = await message.reply("Uploading your file, please wait...")
-        await message.reply_document(new_path, progress=progress, progress_args=(upload_msg, desired_name))
+        await message.reply_document(new_path, progress=progress, thumb=str(thumb_path), progress_args=(upload_msg, desired_name))
         await upload_msg.edit(f"Here is your file: {desired_name}")
         
         # Clean up
