@@ -114,7 +114,7 @@ async def progress(current, total, message, file_name):
     progress_bar = "🟩" * progress_blocks + "⬜" * (10 - progress_blocks)
     
     # Textual representation with graphical blocks
-    progress_text = f"<b>Downloading {file_name}:</b>\n[{progress_bar}] <i>{progress_percent:.1f}%</i>"
+    progress_text = f"<b>Downloading: {file_name}</b>\n\n[{progress_bar}] <i>{progress_percent:.1f}%</i>"
     
     # Update the message with the new progress bar
     await message.edit(progress_text)
@@ -136,7 +136,7 @@ async def pdf_handler(client, message):
         # Download and save the file with progress bar
         download_msg = await message.reply("Starting to download your PDF...")
         await message.download(file_path, progress=progress, progress_args=(download_msg, message.document.file_name))
-        await download_msg.edit(f"PDF file saved as {file_path.name}.\n\nUse /merge to combine files or /split <start>-<end> to split.")
+        await download_msg.edit(f"PDF file saved as {file_path.name}\n\nUse /merge to combine files or /split <start>-<end> to split.")
     else:
         await message.reply("This file is not a PDF. Please upload a valid PDF file.")
 
@@ -154,7 +154,7 @@ async def merge_handler(client, message):
     output_path = user_dir / "merged.pdf"
     try:
         merge_pdfs(pdf_files, output_path)
-        await message.reply("Merging Complete!\nPlease Enter A New Name For The PDF With Extension. (eg:- MG_Quotation.pdf).")
+        await message.reply("Merging Complete!\n\nPlease Enter A New Name For The PDF With Extension. (eg:- MG_Quotation.pdf).")
         user_states[chat_id] = {"operation": "merge", "file_path": output_path}
     except Exception as e:
         await message.reply(f"Error during merging: {e}")
@@ -180,7 +180,7 @@ async def split_handler(client, message):
         start, end = map(int, args[1].split("-"))
         output_path = user_dir / "split.pdf"
         split_pdf(pdf_files[0], output_path, range(start, end + 1))
-        await message.reply("Splitting Complete!\nPlease Enter A New Name For The PDF With Extension. (eg:- MG_Quotation.pdf).")
+        await message.reply("Splitting Complete!\n\nPlease Enter A New Name For The PDF With Extension. (eg:- MG_Quotation.pdf).")
         user_states[chat_id] = {"operation": "split", "file_path": output_path}
     except Exception as e:
         await message.reply(f"Error splitting the PDF: {e}")
