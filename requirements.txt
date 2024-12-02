@@ -1,3 +1,4 @@
+requests
 pyrogram
 PyPDF2
 TgCrypto
