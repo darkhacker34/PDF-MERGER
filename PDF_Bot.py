@@ -139,7 +139,6 @@ file_download_lock = asyncio.Lock()
 
 
 
-# Handle PDF uploads
 @app.on_message(filters.document)
 async def pdf_handler(client, message):
     if message.document.mime_type == "application/pdf":
@@ -156,12 +155,26 @@ async def pdf_handler(client, message):
             # Save the name of the first PDF uploaded by the user (without the extension)
             if next_file_number == 1:
                 user_states[chat_id] = {"first_pdf_base_name": os.path.splitext(message.document.file_name)[0]}
+            else:
+                user_states.setdefault(chat_id, {})  # Ensure user state exists for this chat
+
+            # Delete the last download message if it exists
+            last_msg_id = user_states[chat_id].get("last_download_msg_id")
+            if last_msg_id:
+                try:
+                    await client.delete_messages(chat_id, last_msg_id)
+                except Exception as e:
+                    logger.warning(f"Failed to delete last message for user {chat_id}: {e}")
 
             # Download and save the file with progress bar
             download_msg = await message.reply("Starting to download your PDF...")
             try:
                 await message.download(file_path, progress=progress, progress_args=(download_msg, message.document.file_name))
                 await download_msg.edit(f"PDF file saved as {file_path.name}\n\nUse /merge to combine files or /split <start>-<end> to split.")
+
+                # Update the last download message ID in user states
+                user_states[chat_id]["last_download_msg_id"] = download_msg.id  # Corrected attribute name
+
             except Exception as e:
                 logger.error(f"File download error: {e}")
                 await download_msg.edit("An error occurred during the download. Please try again.")
