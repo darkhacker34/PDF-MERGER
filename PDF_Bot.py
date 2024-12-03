@@ -271,7 +271,7 @@ async def split_handler(client, message):
         shutil.rmtree(user_dir, ignore_errors=True)  # Clean up user files
 
 
-# Helper function to send a file to the user
+# Helper function to send a file to the user and delete messages afterward
 async def send_file_to_user(chat_id, message, file_path):
     thump = "https://raw.githubusercontent.com/darkhacker34/PDF-MERGER/refs/heads/main/MasterGreenLogo.jpg"
 
@@ -280,15 +280,39 @@ async def send_file_to_user(chat_id, message, file_path):
     if not thumb_path.exists():
         download_thumbnail(thump, thumb_path)
 
+    # Track messages for deletion
+    messages_to_delete = []
+
     # Send the file to the user with a progress bar
     upload_msg = await message.reply("Uploading Your File, Please Wait...")
-    await message.reply_document(file_path, progress=progress, thumb=str(thumb_path), progress_args=(upload_msg, file_path.name))
-    await upload_msg.edit(f"Here Is Your File: {file_path.name}")
+    messages_to_delete.append(upload_msg.id)
+
+    try:
+        doc_message = await message.reply_document(
+            file_path,
+            progress=progress,
+            thumb=str(thumb_path),
+            progress_args=(upload_msg, file_path.name),
+        )
+        messages_to_delete.append(doc_message.id)
+
+        await upload_msg.edit(f"Here Is Your File: {file_path.name}")
+    except Exception as e:
+        logger.error(f"Error sending file: {e}")
+        await upload_msg.edit("Failed to send the file. Please try again later.")
+        return
+
+    # Delete all messages after sending the file
+    try:
+        await asyncio.gather(*[message.delete() for msg_id in messages_to_delete])
+    except Exception as e:
+        logger.warning(f"Failed to delete messages: {e}")
 
     # Clean up user files after sending the file
     user_dir = temp_dir / chat_id
     shutil.rmtree(user_dir, ignore_errors=True)  # Remove all files for the user
     user_states.pop(chat_id, None)  # Clear state
+
 
 # Start the Flask server in a separate thread
 if __name__ == '__main__':
