@@ -184,9 +184,9 @@ async def pdf_handler(client, message):
 
                 # Notify user with page count and instructions
                 await download_msg.edit(
-                    f"PDF file saved as {unique_file_name}\n\n"
-                    f"Total Pages: {page_count}\n\n"
-                    "Use /merge to combine files or /split - to split."
+                    f"Saved!\n\nPDF Name: {unique_file_name}\n\n"
+                    f"Total Pages : {page_count}\n\n"
+                    "Send Other PDFs or Use /merge to combine it,\n/split - to split."
                 )
 
                 # Update the last download message ID in user states
