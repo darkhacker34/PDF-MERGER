@@ -235,7 +235,7 @@ async def split_handler(client, message):
     # Extract arguments from the command
     args = message.text.split()
     if len(args) != 2:
-        await message.reply("Invalid command format! Use /split <start>-<end> or /split <page> (e.g., /split 1-3 or /split 5).")
+        await message.reply("Invalid command format! Use (eg:- /split 1-3 or /split 5).")
         return
 
     try:
