@@ -11,6 +11,29 @@ import asyncio  # Import asyncio for handling locks
 from flask import Flask
 import threading
 import requests
+import signal
+
+def shutdown_handler(*args):
+    logger.info("Shutting down gracefully...")
+    app.stop()
+    os._exit(0)
+
+signal.signal(signal.SIGTERM, shutdown_handler)
+signal.signal(signal.SIGINT, shutdown_handler)
+
+import portalocker
+
+def ensure_single_instance():
+    lock_file_path = "pdf_bot.lock"
+    try:
+        lock_file = open(lock_file_path, "w")
+        portalocker.lock(lock_file, portalocker.LOCK_EX | portalocker.LOCK_NB)
+    except portalocker.LockException:
+        print("Another instance is already running. Exiting.")
+        os._exit(1)
+
+ensure_single_instance()
+
 
 # Logging setup
 logging.basicConfig(level=logging.INFO)
