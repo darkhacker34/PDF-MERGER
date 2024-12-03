@@ -109,9 +109,9 @@ Commands:
 
 ➡ /merge - Merge multiple PDFs (upload all PDFs first and send the command).
 
-➡ /split (start-end) - Split a PDF by specifying the page range.
+➡ /split - Split a PDF by specifying the page range.
 
-e.g., /split 1-3 (for pages 1 to 3) or /split 2-2 (for a single page).
+e.g., /split 1-3 (for 1 to 3 Pages) or /split 2 (for a single page).
 """
 
 # Handle "/help" command
