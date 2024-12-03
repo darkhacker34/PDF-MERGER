@@ -7,6 +7,7 @@ from pathlib import Path
 import logging
 import shutil
 import re
+import asyncio  # Import asyncio for handling locks
 from flask import Flask
 import threading
 import requests
@@ -132,6 +133,12 @@ async def progress(current, total, message, file_name):
     # Update the message with the new progress bar
     await message.edit(progress_text)
 
+
+# Lock to prevent simultaneous access
+file_download_lock = asyncio.Lock()
+
+
+
 # Handle PDF uploads
 @app.on_message(filters.document)
 async def pdf_handler(client, message):
@@ -140,21 +147,28 @@ async def pdf_handler(client, message):
         user_dir = temp_dir / chat_id
         user_dir.mkdir(exist_ok=True)
 
-        # Determine the next file name (1.pdf, 2.pdf, etc.)
-        existing_files = list(user_dir.glob("*.pdf"))
-        next_file_number = len(existing_files) + 1
-        file_path = user_dir / f"{next_file_number}.pdf"
+        async with file_download_lock:
+            # Determine the next file name (1.pdf, 2.pdf, etc.)
+            existing_files = list(user_dir.glob("*.pdf"))
+            next_file_number = len(existing_files) + 1
+            file_path = user_dir / f"{next_file_number}.pdf"
 
-        # Save the name of the first PDF uploaded by the user (without the extension)
-        if next_file_number == 1:
-            user_states[chat_id] = {"first_pdf_base_name": os.path.splitext(message.document.file_name)[0]}
+            # Save the name of the first PDF uploaded by the user (without the extension)
+            if next_file_number == 1:
+                user_states[chat_id] = {"first_pdf_base_name": os.path.splitext(message.document.file_name)[0]}
 
-        # Download and save the file with progress bar
-        download_msg = await message.reply("Starting to download your PDF...")
-        await message.download(file_path, progress=progress, progress_args=(download_msg, message.document.file_name))
-        await download_msg.edit(f"PDF file saved as {file_path.name}\n\nUse /merge to combine files or /split <start>-<end> to split.")
+            # Download and save the file with progress bar
+            download_msg = await message.reply("Starting to download your PDF...")
+            try:
+                await message.download(file_path, progress=progress, progress_args=(download_msg, message.document.file_name))
+                await download_msg.edit(f"PDF file saved as {file_path.name}\n\nUse /merge to combine files or /split <start>-<end> to split.")
+            except Exception as e:
+                logger.error(f"File download error: {e}")
+                await download_msg.edit("An error occurred during the download. Please try again.")
     else:
         await message.reply("This file is not a PDF. Please upload a valid PDF file.")
+
+
 
 @app.on_message(filters.command("merge"))
 async def merge_handler(client, message):
