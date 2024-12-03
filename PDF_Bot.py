@@ -128,7 +128,7 @@ async def progress(current, total, message, file_name):
     progress_bar = "🟩" * progress_blocks + "⬜" * (10 - progress_blocks)
     
     # Textual representation with graphical blocks
-    progress_text = f"<b>Downloading: {file_name}</b>\n\n[{progress_bar}] <i>{progress_percent:.1f}%</i>"
+    progress_text = f"<b>In Process ⏳: {file_name}</b>\n\n[{progress_bar}] <i>{progress_percent:.1f}%</i>"
     
     # Update the message with the new progress bar
     await message.edit(progress_text)
@@ -136,7 +136,6 @@ async def progress(current, total, message, file_name):
 
 # Lock to prevent simultaneous access
 file_download_lock = asyncio.Lock()
-
 
 
 @app.on_message(filters.document)
@@ -167,19 +166,31 @@ async def pdf_handler(client, message):
                     logger.warning(f"Failed to delete last message for user {chat_id}: {e}")
 
             # Download and save the file with progress bar
-            download_msg = await message.reply("Starting to download your PDF...")
+            download_msg = await message.reply("Downloading...")
             try:
                 await message.download(file_path, progress=progress, progress_args=(download_msg, message.document.file_name))
-                await download_msg.edit(f"PDF file saved as {file_path.name}\n\nUse /merge to combine files or /split <start>-<end> to split.")
+                
+                # Get total page count
+                reader = PdfReader(file_path)
+                page_count = len(reader.pages)
+                
+                # Notify user with page count and instructions
+                await download_msg.edit(
+                    f"PDF file Saved as {file_path.name}\n\n"
+                    f"Total Pages: {page_count}\n\n"
+                    "Use /merge to combine files or /split - to split."
+                )
 
                 # Update the last download message ID in user states
-                user_states[chat_id]["last_download_msg_id"] = download_msg.id  # Corrected attribute name
+                user_states[chat_id]["last_download_msg_id"] = download_msg.id
 
             except Exception as e:
                 logger.error(f"File download error: {e}")
                 await download_msg.edit("An error occurred during the download. Please try again.")
     else:
         await message.reply("This file is not a PDF. Please upload a valid PDF file.")
+
+
 
 
 
@@ -190,7 +201,7 @@ async def merge_handler(client, message):
     pdf_files = sorted(user_dir.glob("*.pdf"))  # Ensure sequential order
 
     if len(pdf_files) < 2:
-        await message.reply("Please upload at least two PDF files to merge.")
+        await message.reply("Please Upload at Least Two PDFs to Merge.")
         return
 
     # Use the base name of the first PDF uploaded, excluding the extension
@@ -214,21 +225,44 @@ async def split_handler(client, message):
         await message.reply("Please upload a single PDF file to split.")
         return
 
+    # Extract arguments from the command
     args = message.text.split()
-    if len(args) != 2 or "-" not in args[1]:
-        await message.reply("Invalid command format! Use /split <start>-<end> (e.g., /split 1-3).")
+    if len(args) != 2:
+        await message.reply("Invalid command format! Use /split <start>-<end> or /split <page> (e.g., /split 1-3 or /split 5).")
         return
 
     try:
-        start, end = map(int, args[1].split("-"))
+        input_file = pdf_files[0]
+        reader = PdfReader(input_file)
+        total_pages = len(reader.pages)
+
+        # Determine the split range
+        if "-" in args[1]:
+            # Handle range format (e.g., 1-4)
+            start, end = map(int, args[1].split("-"))
+            if start < 1 or end > total_pages or start > end:
+                await message.reply(f"Invalid page range! Please choose between 1 and {total_pages}.")
+                return
+            page_numbers = range(start, end + 1)
+        else:
+            # Handle single page format (e.g., 5)
+            page_number = int(args[1])
+            if page_number < 1 or page_number > total_pages:
+                await message.reply(f"Invalid page number! Please choose between 1 and {total_pages}.")
+                return
+            page_numbers = [page_number]
+
+        # Split the specified pages into a new PDF
         first_pdf_base_name = user_states[chat_id]["first_pdf_base_name"]
         output_path = user_dir / f"{first_pdf_base_name}.pdf"
 
-        split_pdf(pdf_files[0], output_path, range(start, end + 1))
+        split_pdf(input_file, output_path, page_numbers)
         await send_file_to_user(chat_id, message, output_path)
     except Exception as e:
+        logger.error(f"Error splitting the PDF: {e}")
         await message.reply(f"Error splitting the PDF: {e}")
         shutil.rmtree(user_dir, ignore_errors=True)  # Clean up user files
+
 
 # Helper function to send a file to the user
 async def send_file_to_user(chat_id, message, file_path):
@@ -240,9 +274,9 @@ async def send_file_to_user(chat_id, message, file_path):
         download_thumbnail(thump, thumb_path)
 
     # Send the file to the user with a progress bar
-    upload_msg = await message.reply("Uploading your file, please wait...")
+    upload_msg = await message.reply("Uploading Your File, Please Wait...")
     await message.reply_document(file_path, progress=progress, thumb=str(thumb_path), progress_args=(upload_msg, file_path.name))
-    await upload_msg.edit(f"Here is your file: {file_path.name}")
+    await upload_msg.edit(f"Here Is Your File: {file_path.name}")
 
     # Clean up user files after sending the file
     user_dir = temp_dir / chat_id
