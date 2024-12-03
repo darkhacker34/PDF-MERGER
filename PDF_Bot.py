@@ -112,13 +112,6 @@ def download_thumbnail(url, save_path):
 
 @app.on_message(filters.command("start"))
 async def start_handler(client, message):
-    chat_id = str(message.chat.id)
-    user_dir = temp_dir / chat_id
-
-    # Clear any previous files from the user's directory
-    if user_dir.exists():
-        shutil.rmtree(user_dir)  # Delete the entire directory
-    user_dir.mkdir(exist_ok=True)  # Recreate the directory
 
     username = message.from_user.username
     await message.reply_photo(
@@ -130,6 +123,19 @@ async def start_handler(client, message):
         ]])
     )
 
+
+@app.on_message(filters.command("clear"))
+async def clear_handler(client, message):
+    chat_id = str(message.chat.id)
+    user_dir = temp_dir / chat_id
+
+    # Check if the user's directory exists
+    if user_dir.exists() and any(user_dir.iterdir()):  # Check if directory is not empty
+        shutil.rmtree(user_dir)  # Delete the entire directory
+        user_dir.mkdir(exist_ok=True)  # Recreate the directory
+        await message.reply("All Files Cleared!")
+    else:
+        await message.reply("No files to clear")
 # Help message
 HELP_MSG = """
 Commands:
@@ -164,6 +170,15 @@ async def progress(current, total, message, file_name):
 # Lock to prevent simultaneous access
 file_download_lock = asyncio.Lock()
 
+# State tracking for user operations, including bot messages
+user_states = {}
+
+# Track bot messages for each user
+async def track_bot_message(chat_id, message_id):
+    if chat_id not in user_states:
+        user_states[chat_id] = {"messages_to_delete": []}
+    user_states[chat_id]["messages_to_delete"].append(message_id)
+
 
 @app.on_message(filters.document)
 async def pdf_handler(client, message):
@@ -190,7 +205,7 @@ async def pdf_handler(client, message):
 
             # Save the name of the first PDF uploaded by the user (without the extension)
             if "first_pdf_base_name" not in user_states.get(chat_id, {}):
-                user_states[chat_id] = {"first_pdf_base_name": base_name}
+                user_states[chat_id] = {"first_pdf_base_name": base_name, "messages_to_delete": []}
 
             # Delete the last download message if it exists
             last_msg_id = user_states[chat_id].get("last_download_msg_id")
@@ -202,6 +217,7 @@ async def pdf_handler(client, message):
 
             # Download and save the file with progress bar
             download_msg = await message.reply("Downloading...")
+            await track_bot_message(chat_id, download_msg.id)  # Track this message for deletion
             try:
                 await message.download(file_path, progress=progress, progress_args=(download_msg, original_file_name))
 
@@ -210,20 +226,20 @@ async def pdf_handler(client, message):
                 page_count = len(reader.pages)
 
                 # Notify user with page count and instructions
-                await download_msg.edit(
+                notify_msg = await download_msg.edit(
                     f"Saved!\n\nPDF Name: {unique_file_name}\n\n"
                     f"Total Pages : {page_count}\n\n"
                     "Send Other PDFs or Use /merge to combine it,\n/split - to split."
                 )
-
-                # Update the last download message ID in user states
-                user_states[chat_id]["last_download_msg_id"] = download_msg.id
+                await track_bot_message(chat_id, notify_msg.id)  # Track this message for deletion
+                user_states[chat_id]["last_download_msg_id"] = notify_msg.id
 
             except Exception as e:
                 logger.error(f"File download error: {e}")
                 await download_msg.edit("An error occurred during the download. Please try again.")
     else:
-        await message.reply("This file is not a PDF. Please upload a valid PDF file.")
+        reply_msg = await message.reply("This file is not a PDF. Please upload a valid PDF file.")
+        await track_bot_message(str(message.chat.id), reply_msg.id)
 
 
 
@@ -298,7 +314,6 @@ async def split_handler(client, message):
         shutil.rmtree(user_dir, ignore_errors=True)  # Clean up user files
 
 
-# Helper function to send a file to the user and delete messages afterward
 async def send_file_to_user(chat_id, message, file_path):
     thump = "https://raw.githubusercontent.com/darkhacker34/PDF-MERGER/refs/heads/main/MasterGreenLogo.jpg"
 
@@ -307,38 +322,42 @@ async def send_file_to_user(chat_id, message, file_path):
     if not thumb_path.exists():
         download_thumbnail(thump, thumb_path)
 
-    # Track messages for deletion
-    messages_to_delete = []
-
     # Send the file to the user with a progress bar
     upload_msg = await message.reply("Uploading Your File, Please Wait...")
-    messages_to_delete.append(upload_msg.id)
+    await track_bot_message(chat_id, upload_msg.id)  # Track this message for deletion
 
     try:
+        # Send the output file to the user
         doc_message = await message.reply_document(
             file_path,
             progress=progress,
             thumb=str(thumb_path),
             progress_args=(upload_msg, file_path.name),
         )
-        messages_to_delete.append(doc_message.id)
 
-        await upload_msg.edit(f"Here Is Your File: {file_path.name}")
+        # Notify user after sending the file
+        await upload_msg.edit(f"Here is your file: {file_path.name}")
+
     except Exception as e:
         logger.error(f"Error sending file: {e}")
         await upload_msg.edit("Failed to send the file. Please try again later.")
         return
 
-    # Delete all messages after sending the file
+    # Delete all bot-generated messages except the output file
     try:
-        await asyncio.gather(*[message.delete() for msg_id in messages_to_delete])
+        messages_to_delete = user_states[chat_id].get("messages_to_delete", [])
+        if upload_msg.id in messages_to_delete:
+            messages_to_delete.remove(upload_msg.id)  # Ensure the output notification isn't deleted
+        await message._client.delete_messages(chat_id, messages_to_delete)
     except Exception as e:
-        logger.warning(f"Failed to delete messages: {e}")
+        logger.error(f"Error deleting messages: {e}")
 
     # Clean up user files after sending the file
     user_dir = temp_dir / chat_id
-    shutil.rmtree(user_dir, ignore_errors=True)  # Remove all files for the user
+    shutil.rmtree(user_dir, ignore_errors=True)  # Remove all temp files for the user
     user_states.pop(chat_id, None)  # Clear state
+
+
 
 
 # Start the Flask server in a separate thread
