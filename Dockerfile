@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js and npm for pm2
+# Install Node.js and pm2
 RUN curl -fsSL https://deb.nodesource.com/setup_16.x | bash - \
     && apt-get install -y nodejs \
     && npm install -g pm2 \
@@ -29,5 +29,5 @@ COPY . .
 # Expose Flask's default port
 EXPOSE 8000
 
-# Use pm2 to run the bot
-CMD ["pm2-runtime", "start", "--name", "pdf_bot", "--interpreter", "python3", "PDF_Bot.py"]
+# Start the bot with pm2-runtime
+CMD ["pm2-runtime", "start", "main.py", "--interpreter", "python3"]
