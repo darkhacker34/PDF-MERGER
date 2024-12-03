@@ -8,13 +8,22 @@ import logging
 import shutil
 import re
 import asyncio  # Import asyncio for handling locks
-from flask import Flask
+from flask import Flask, jsonify, send_file
 import threading
 import requests
 
 
 # Logging setup
-logging.basicConfig(level=logging.INFO)
+temp_dir = Path(tempfile.gettempdir())
+log_file_path = temp_dir / "bot_logs.log"
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler(log_file_path),
+        logging.StreamHandler()  # Logs also appear on the console
+    ]
+)
 logger = logging.getLogger(__name__)
 
 bot = Flask(__name__)
@@ -26,6 +35,23 @@ def hello_world():
 @bot.route('/health')
 def health_check():
     return 'Healthy', 200
+
+# Endpoint to monitor bot activity
+@bot.route('/bot_activity')
+def bot_activity():
+    activity = {
+        "active_users": len(user_states),
+        "user_states": user_states
+    }
+    return jsonify(activity)
+
+# Endpoint to fetch logs
+@bot.route('/logs')
+def fetch_logs():
+    if log_file_path.exists():
+        return send_file(log_file_path, as_attachment=True)
+    else:
+        return "Log file not found.", 404
 
 def run_flask():
     bot.run(host='0.0.0.0', port=8000)
