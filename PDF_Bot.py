@@ -146,16 +146,24 @@ async def pdf_handler(client, message):
         user_dir.mkdir(exist_ok=True)
 
         async with file_download_lock:
-            # Determine the next file name (1.pdf, 2.pdf, etc.)
-            existing_files = list(user_dir.glob("*.pdf"))
-            next_file_number = len(existing_files) + 1
-            file_path = user_dir / f"{next_file_number}.pdf"
+            # Get the original file name from the message
+            original_file_name = message.document.file_name
+            if not original_file_name:
+                original_file_name = "unknown.pdf"
+
+            # Ensure the file name is unique in the user's directory
+            base_name, ext = os.path.splitext(original_file_name)
+            unique_file_name = original_file_name
+            counter = 1
+            while (user_dir / unique_file_name).exists():
+                unique_file_name = f"{base_name}_{counter}{ext}"
+                counter += 1
+
+            file_path = user_dir / unique_file_name
 
             # Save the name of the first PDF uploaded by the user (without the extension)
-            if next_file_number == 1:
-                user_states[chat_id] = {"first_pdf_base_name": os.path.splitext(message.document.file_name)[0]}
-            else:
-                user_states.setdefault(chat_id, {})  # Ensure user state exists for this chat
+            if "first_pdf_base_name" not in user_states.get(chat_id, {}):
+                user_states[chat_id] = {"first_pdf_base_name": base_name}
 
             # Delete the last download message if it exists
             last_msg_id = user_states[chat_id].get("last_download_msg_id")
@@ -168,15 +176,15 @@ async def pdf_handler(client, message):
             # Download and save the file with progress bar
             download_msg = await message.reply("Downloading...")
             try:
-                await message.download(file_path, progress=progress, progress_args=(download_msg, message.document.file_name))
-                
+                await message.download(file_path, progress=progress, progress_args=(download_msg, original_file_name))
+
                 # Get total page count
                 reader = PdfReader(file_path)
                 page_count = len(reader.pages)
-                
+
                 # Notify user with page count and instructions
                 await download_msg.edit(
-                    f"PDF file Saved as {file_path.name}\n\n"
+                    f"PDF file saved as {unique_file_name}\n\n"
                     f"Total Pages: {page_count}\n\n"
                     "Use /merge to combine files or /split - to split."
                 )
@@ -189,7 +197,6 @@ async def pdf_handler(client, message):
                 await download_msg.edit("An error occurred during the download. Please try again.")
     else:
         await message.reply("This file is not a PDF. Please upload a valid PDF file.")
-
 
 
 
