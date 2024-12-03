@@ -109,9 +109,9 @@ Commands:
 
 ➡ /merge - Merge multiple PDFs (upload all PDFs first and send the command).
 
-➡ /split - Split a PDF by specifying the page range.
+➡ /split (start-end) - Split a PDF by specifying the page range.
 
-e.g., /split 1-3 (for 1 to 3 Pages) or /split 2 (for a single page).
+e.g., /split 1-3 (for pages 1 to 3) or /split 2-2 (for a single page).
 """
 
 # Handle "/help" command
@@ -119,27 +119,24 @@ e.g., /split 1-3 (for 1 to 3 Pages) or /split 2 (for a single page).
 async def help_handler(client, message):
     await message.reply(HELP_MSG)
 
+# Helper function to display progress in Telegram with 10 graphical blocks
 async def progress(current, total, message, file_name):
-    try:
-        progress_percent = (current / total) * 100
-        progress_blocks = int(progress_percent // 10)  # 10 blocks for a 100% bar
+    progress_percent = (current / total) * 100
+    progress_blocks = int(progress_percent // 10)  # 10 blocks for a 100% bar
 
-        # Graphical progress bar with 10 blocks
-        progress_bar = "🟩" * progress_blocks + "⬜" * (10 - progress_blocks)
-        
-        # Textual representation with graphical blocks
-        progress_text = f"<b>In Process ⏳: {file_name}</b>\n\n[{progress_bar}] <i>{progress_percent:.1f}%</i>"
-
-        # Update the message with the new progress bar
-        await message.edit(progress_text)
-    except asyncio.CancelledError:
-        # Handle progress cancellation
-        await message.edit("Operation stopped by the user.")
-        raise
+    # Graphical progress bar with 10 blocks
+    progress_bar = "🟩" * progress_blocks + "⬜" * (10 - progress_blocks)
+    
+    # Textual representation with graphical blocks
+    progress_text = f"<b>In Process ⏳: {file_name}</b>\n\n[{progress_bar}] <i>{progress_percent:.1f}%</i>"
+    
+    # Update the message with the new progress bar
+    await message.edit(progress_text)
 
 
 # Lock to prevent simultaneous access
 file_download_lock = asyncio.Lock()
+
 
 @app.on_message(filters.document)
 async def pdf_handler(client, message):
@@ -148,43 +145,38 @@ async def pdf_handler(client, message):
         user_dir = temp_dir / chat_id
         user_dir.mkdir(exist_ok=True)
 
-        # Initialize user state if not already set
-        if chat_id not in user_states:
-            user_states[chat_id] = {}
-
         async with file_download_lock:
+            # Get the original file name from the message
+            original_file_name = message.document.file_name
+            if not original_file_name:
+                original_file_name = "unknown.pdf"
+
+            # Ensure the file name is unique in the user's directory
+            base_name, ext = os.path.splitext(original_file_name)
+            unique_file_name = original_file_name
+            counter = 1
+            while (user_dir / unique_file_name).exists():
+                unique_file_name = f"{base_name}_{counter}{ext}"
+                counter += 1
+
+            file_path = user_dir / unique_file_name
+
+            # Save the name of the first PDF uploaded by the user (without the extension)
+            if "first_pdf_base_name" not in user_states.get(chat_id, {}):
+                user_states[chat_id] = {"first_pdf_base_name": base_name}
+
+            # Delete the last download message if it exists
+            last_msg_id = user_states[chat_id].get("last_download_msg_id")
+            if last_msg_id:
+                try:
+                    await client.delete_messages(chat_id, last_msg_id)
+                except Exception as e:
+                    logger.warning(f"Failed to delete last message for user {chat_id}: {e}")
+
+            # Download and save the file with progress bar
+            download_msg = await message.reply("Downloading...")
             try:
-                # Track the active process
-                active_task = asyncio.current_task()
-                user_states[chat_id]["active_process"] = active_task
-
-                # Get the original file name from the message
-                original_file_name = message.document.file_name or "unknown.pdf"
-
-                # Ensure the file name is unique in the user's directory
-                base_name, ext = os.path.splitext(original_file_name)
-                unique_file_name = original_file_name
-                counter = 1
-                while (user_dir / unique_file_name).exists():
-                    unique_file_name = f"{base_name}_{counter}{ext}"
-                    counter += 1
-
-                file_path = user_dir / unique_file_name
-
-                # Save the name of the first PDF uploaded by the user (without the extension)
-                if "first_pdf_base_name" not in user_states[chat_id]:
-                    user_states[chat_id]["first_pdf_base_name"] = base_name
-
-                # Notify the user and begin the download
-                download_msg = await message.reply("Downloading...")
-                user_states[chat_id]["last_download_msg_id"] = download_msg.id
-
-                # Download and save the file with progress
-                await message.download(
-                    file_path,
-                    progress=progress,
-                    progress_args=(download_msg, original_file_name)
-                )
+                await message.download(file_path, progress=progress, progress_args=(download_msg, original_file_name))
 
                 # Get total page count
                 reader = PdfReader(file_path)
@@ -193,51 +185,18 @@ async def pdf_handler(client, message):
                 # Notify user with page count and instructions
                 await download_msg.edit(
                     f"Saved!\n\nPDF Name: {unique_file_name}\n\n"
-                    f"Total Pages: {page_count}\n\n"
-                    "Send other PDFs or use /merge to combine them, or /split to extract pages."
+                    f"Total Pages : {page_count}\n\n"
+                    "Send Other PDFs or Use /merge to combine it,\n/split - to split."
                 )
 
-            except asyncio.CancelledError:
-                # Handle task cancellation (e.g., /stop command)
-                await message.reply("👍🏽")
+                # Update the last download message ID in user states
+                user_states[chat_id]["last_download_msg_id"] = download_msg.id
+
             except Exception as e:
                 logger.error(f"File download error: {e}")
-                await message.reply("An error occurred during the download. Please try again.")
-            finally:
-                # Safely clear the user's active process state
-                if chat_id in user_states:
-                    user_states[chat_id]["active_process"] = None
+                await download_msg.edit("An error occurred during the download. Please try again.")
     else:
         await message.reply("This file is not a PDF. Please upload a valid PDF file.")
-
-
-
-@app.on_message(filters.command("stop"))
-async def stop_handler(client, message):
-    chat_id = str(message.chat.id)
-
-    try:
-        user_state = user_states.get(chat_id, {})
-        active_task = user_state.get("active_process")
-        operation = user_state.get("current_operation", "an operation")
-
-        # Stop the active task if it exists
-        if active_task:
-            active_task.cancel()
-
-        # Clean up user files
-        user_dir = temp_dir / chat_id
-        if user_dir.exists():
-            shutil.rmtree(user_dir, ignore_errors=True)
-
-        # Clear user state
-        user_states.pop(chat_id, None)
-
-        # Send a single consolidated message to the user
-        await message.reply("The active process has been successfully stopped. Temporary files have been cleared.")
-    except Exception as e:
-        logger.error(f"Error during stopping process: {e}")
-        await message.reply(f"An error occurred while stopping the process: {e}")
 
 
 
