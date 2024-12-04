@@ -77,6 +77,8 @@ def merge_pdfs(pdf_list, output_path):
     try:
         writer = PdfWriter()
         for pdf_path in pdf_list:
+            if user_states.get(chat_id, {}).get("cancel"):  # Check cancellation
+                raise Exception("Operation canceled by the user.")
             reader = PdfReader(pdf_path)
             for page in reader.pages:
                 writer.add_page(page)
@@ -85,6 +87,25 @@ def merge_pdfs(pdf_list, output_path):
     except Exception as e:
         logger.error(f"Error merging PDFs: {e}")
         raise e
+
+@app.on_callback_query(filters.regex(r"cancel"))
+async def cancel_handler(client, callback_query: CallbackQuery):
+    chat_id = str(callback_query.message.chat.id)
+
+    # Set the cancellation flag for the user
+    if chat_id in user_states:
+        user_states[chat_id]["cancel"] = True
+
+    # Clean up temporary files
+    user_dir = temp_dir / chat_id
+    shutil.rmtree(user_dir, ignore_errors=True)
+
+    # Reset user state
+    user_states.pop(chat_id, None)
+
+    # Notify the user
+    await callback_query.message.edit_text("❌ Operation canceled. You can start a new task.")
+
 
 # Helper function to split a PDF
 def split_pdf(input_file, output_file, page_numbers):
@@ -170,18 +191,20 @@ async def help_handler(client, message):
     await message.reply(HELP_MSG)
 
 # Helper function to display progress in Telegram with 10 graphical blocks
+# Example: Check cancellation in a loop
 async def progress(current, total, message, file_name):
+    chat_id = str(message.chat.id)
+    
+    # Check if the user has canceled the process
+    if user_states.get(chat_id, {}).get("cancel"):
+        raise asyncio.CancelledError("Operation canceled by the user.")  # Raise cancellation error
+    
     progress_percent = (current / total) * 100
     progress_blocks = int(progress_percent // 10)  # 10 blocks for a 100% bar
-
-    # Graphical progress bar with 10 blocks
     progress_bar = "🟩" * progress_blocks + "⬜" * (10 - progress_blocks)
-    
-    # Textual representation with graphical blocks
     progress_text = f"<b>In Process ⏳: {file_name}</b>\n\n[{progress_bar}] <i>{progress_percent:.1f}%</i>"
-    
-    # Update the message with the new progress bar
     await message.edit(progress_text)
+
 
 
 # Lock to prevent simultaneous access
@@ -295,12 +318,28 @@ async def handle_split_range(client, message):
         user_states.pop(chat_id, None)  # Clean up state on error
 
 
+@app.on_callback_query(filters.regex(r"cancel"))
+async def cancel_handler(client, callback_query: CallbackQuery):
+    chat_id = str(callback_query.message.chat.id)
+
+    # Set the cancellation flag for the user
+    if chat_id in user_states:
+        user_states[chat_id]["cancel"] = True
+
+    # Notify the user
+    await callback_query.message.edit_text("❌ Operation canceled. You can start a new task.")
+
 @app.on_message(filters.document)
 async def pdf_handler(client, message):
     if message.document.mime_type == "application/pdf":
         chat_id = str(message.chat.id)
         user_dir = temp_dir / chat_id
         user_dir.mkdir(exist_ok=True)
+
+        # Reset cancellation flag for the user
+        if chat_id not in user_states:
+            user_states[chat_id] = {}
+        user_states[chat_id]["cancel"] = False  # Reset cancel flag
 
         async with file_download_lock:
             # Get the original file name from the message
@@ -319,10 +358,11 @@ async def pdf_handler(client, message):
             file_path = user_dir / unique_file_name
 
             # Save the name of the first PDF uploaded by the user (without the extension)
-            if "first_pdf_base_name" not in user_states.get(chat_id, {}):
-                user_states[chat_id] = {"first_pdf_base_name": base_name, "messages_to_delete": []}
+            if "first_pdf_base_name" not in user_states[chat_id]:
+                user_states[chat_id]["first_pdf_base_name"] = base_name
+                user_states[chat_id]["messages_to_delete"] = []
 
-            # Download and save the file with progress bar
+            # Download and save the file with a progress bar
             download_msg = await message.reply("Downloading...")
             await track_bot_message(chat_id, download_msg.id)  # Track this message for deletion
             try:
@@ -337,17 +377,22 @@ async def pdf_handler(client, message):
 
                 # Notify user with the PDF details, page count, and the updated PDF count
                 buttons = InlineKeyboardMarkup(
-                    [[
-                        InlineKeyboardButton("🪢 Merge", callback_data="merge"),
-                        InlineKeyboardButton("✂️ Split", callback_data="split")
-                    ]]
-                )
+                    [
+                        [
+                            InlineKeyboardButton("🪢 Merge", callback_data="merge"),
+                            InlineKeyboardButton("✂️ Split", callback_data="split")
+                            ],[
+                                InlineKeyboardButton("❌ Cancel", callback_data="cancel")
+                                ]
+                                ]
+                                )
+
                 notify_msg = await download_msg.edit(
                     f"{pdf_count} PDF Added!\n\nPDF Name: {unique_file_name}\n\n"
                     f"Total Pages: {page_count}\n\n"
                     "Choose an action below:",
                     reply_markup=buttons
-                )
+                    )
                 await track_bot_message(chat_id, notify_msg.id)  # Track this message for deletion
                 user_states[chat_id]["last_download_msg_id"] = notify_msg.id
 
@@ -357,6 +402,7 @@ async def pdf_handler(client, message):
     else:
         reply_msg = await message.reply("This file is not a PDF. Please upload a valid PDF file.")
         await track_bot_message(str(message.chat.id), reply_msg.id)
+
 
 
 
