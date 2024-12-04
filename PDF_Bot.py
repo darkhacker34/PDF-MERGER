@@ -228,13 +228,16 @@ async def merge_handler(client, callback_query: CallbackQuery):
     user_dir = temp_dir / chat_id
     pdf_files = sorted(user_dir.glob("*.pdf"))  # Ensure sequential order
 
-    if len(pdf_files) < 2:
-        await callback_query.message.edit_text("Please Upload at Least Two PDFs to Merge.")
+    if len(pdf_files) < 2:  # Check if at least two PDFs are uploaded
+        await callback_query.answer(  # Send a popup message
+            "Please Upload at Least Two PDFs to Merge.", 
+            show_alert=True  # Set to True to display as a popup
+        )
         return
 
     # Use the base name of the first PDF uploaded, excluding the extension
     first_pdf_base_name = user_states[chat_id]["first_pdf_base_name"]
-    output_path = user_dir / f"{first_pdf_base_name}.pdf"
+    output_path = user_dir / f"{first_pdf_base_name}_merged.pdf"
 
     try:
         merge_pdfs(pdf_files, output_path, chat_id)  # Pass pdf_list, output_path, and chat_id
@@ -251,8 +254,11 @@ async def split_handler(client, callback_query: CallbackQuery):
     user_dir = temp_dir / chat_id
     pdf_files = list(user_dir.glob("*.pdf"))
 
-    if len(pdf_files) != 1:
-        await callback_query.message.edit_text("Please upload a single PDF file to split.")
+    if len(pdf_files) != 1:  # Ensure only one PDF is uploaded
+        await callback_query.answer(  # Send a popup message
+            "Please upload a single PDF file to split.", 
+            show_alert=True  # Set to True to display the message as a popup
+        )
         return
 
     try:
@@ -267,7 +273,7 @@ async def split_handler(client, callback_query: CallbackQuery):
             f"Please provide the page range or a single page number to split (e.g., `1-3` or `5`).\n"
             f"Total Pages: {total_pages}",
             reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton("Cancel", callback_data="cancel")]]
+                [[InlineKeyboardButton("❌ Cancel", callback_data="cancel")]]
             ),
         )
         user_states[chat_id]["action"] = "split"
