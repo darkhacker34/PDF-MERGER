@@ -1,7 +1,8 @@
 
+
 from pyrogram import Client, filters
 from PyPDF2 import PdfReader, PdfWriter
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
 import os
 import tempfile
 from pathlib import Path
@@ -139,14 +140,29 @@ async def clear_handler(client, message):
         await message.reply("No files to clear")
 # Help message
 HELP_MSG = """
-Commands:
+👋 **Welcome to PDF Bot!**
 
-➡ /merge - Merge multiple PDFs (upload all PDFs first and send the command).
-➡ /clear - The Bot Will Delete All Temporary Files.
-➡ /split (start-end) - Split a PDF by specifying the page range.
+I can help you with managing your PDF files. Here’s how to use me:
 
-e.g., /split 1-3 (for pages 1 to 3) or /split 2-2 (for a single page).
+**How it works:**
+1. Upload one or more PDF files.
+2. I’ll show you options to **Merge** or **Split** your PDFs using buttons.
+
+**Features:**
+➡ **Merge PDFs**:
+   - Upload multiple PDF files.
+   - Select "Merge" to combine them into a single PDF.
+
+➡ **Split PDF**:
+   - Upload a single PDF file.
+   - Select "Split" and provide the page range or a single page number (e.g., `1-3` or `5`).
+
+**Additional Commands:**
+➡ `/clear` - Delete all temporary files and reset your session.
+
+Need assistance? Feel free to ask! 😊
 """
+
 
 # Handle "/help" command
 @app.on_message(filters.command("help"))
@@ -181,6 +197,104 @@ async def track_bot_message(chat_id, message_id):
     user_states[chat_id]["messages_to_delete"].append(message_id)
 
 
+@app.on_callback_query(filters.regex(r"merge"))
+async def merge_handler(client, callback_query: CallbackQuery):
+    chat_id = str(callback_query.message.chat.id)
+    user_dir = temp_dir / chat_id
+    pdf_files = sorted(user_dir.glob("*.pdf"))  # Ensure sequential order
+
+    if len(pdf_files) < 2:
+        await callback_query.message.edit_text("Please Upload at Least Two PDFs to Merge.")
+        return
+
+    # Use the base name of the first PDF uploaded, excluding the extension
+    first_pdf_base_name = user_states[chat_id]["first_pdf_base_name"]
+    output_path = user_dir / f"{first_pdf_base_name}.pdf"
+
+    try:
+        merge_pdfs(pdf_files, output_path)
+        await send_file_to_user(chat_id, callback_query.message, output_path)
+    except Exception as e:
+        await callback_query.message.edit_text(f"Error during merging: {e}")
+        shutil.rmtree(user_dir, ignore_errors=True)  # Clean up user files
+
+@app.on_callback_query(filters.regex(r"split"))
+async def split_handler(client, callback_query: CallbackQuery):
+    chat_id = str(callback_query.message.chat.id)
+    user_dir = temp_dir / chat_id
+    pdf_files = list(user_dir.glob("*.pdf"))
+
+    if len(pdf_files) != 1:
+        await callback_query.message.edit_text("Please upload a single PDF file to split.")
+        return
+
+    try:
+        input_file = pdf_files[0]
+        reader = PdfReader(input_file)
+
+        total_pages = len(reader.pages)
+        logger.info(f"Total pages in the PDF: {total_pages} for chat_id: {chat_id}")
+
+        # Prompt the user for page range
+        await callback_query.message.edit_text(
+            f"Please provide the page range or a single page number to split (e.g., `1-3` or `5`).\n"
+            f"Total Pages: {total_pages}",
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("Cancel", callback_data="cancel")]]
+            ),
+        )
+        user_states[chat_id]["action"] = "split"
+        user_states[chat_id]["total_pages"] = total_pages
+
+    except Exception as e:
+        logger.error(f"Error preparing for split operation: {e}")
+        await callback_query.message.edit_text(f"Error preparing to split the PDF: {e}")
+        return
+
+
+@app.on_message(filters.text)
+async def handle_split_range(client, message):
+    chat_id = str(message.chat.id)
+    state = user_states.get(chat_id, {})
+    if state.get("action") != "split":
+        return  # Ignore messages unrelated to split actions
+
+    try:
+        user_dir = temp_dir / chat_id
+        pdf_files = list(user_dir.glob("*.pdf"))
+        input_file = pdf_files[0]
+        total_pages = state.get("total_pages")
+
+        # Parse the user's page range input
+        if "-" in message.text:
+            start, end = map(int, message.text.split("-"))
+            if start < 1 or end > total_pages or start > end:
+                raise ValueError(f"Invalid page range! Must be between 1 and {total_pages}.")
+            page_numbers = range(start, end + 1)
+        else:
+            page_number = int(message.text)
+            if page_number < 1 or page_number > total_pages:
+                raise ValueError(f"Invalid page number! Must be between 1 and {total_pages}.")
+            page_numbers = [page_number]
+
+        # Split the PDF
+        first_pdf_base_name = state.get("first_pdf_base_name", "split_output")
+        output_path = user_dir / f"{first_pdf_base_name}.pdf"
+        split_pdf(input_file, output_path, page_numbers)
+
+        # Send the resulting file to the user
+        await send_file_to_user(chat_id, message, output_path)
+        user_states.pop(chat_id, None)  # Reset state after successful split
+
+    except ValueError as ve:
+        logger.warning(f"User input error: {ve}")
+        await message.reply(str(ve))
+    except Exception as e:
+        logger.error(f"Error splitting the PDF for chat_id {chat_id}: {e}")
+        await message.reply(f"Error splitting the PDF: {e}")
+        user_states.pop(chat_id, None)  # Clean up state on error
+
+
 @app.on_message(filters.document)
 async def pdf_handler(client, message):
     if message.document.mime_type == "application/pdf":
@@ -208,14 +322,6 @@ async def pdf_handler(client, message):
             if "first_pdf_base_name" not in user_states.get(chat_id, {}):
                 user_states[chat_id] = {"first_pdf_base_name": base_name, "messages_to_delete": []}
 
-            # Delete the last download message if it exists
-            last_msg_id = user_states[chat_id].get("last_download_msg_id")
-            if last_msg_id:
-                try:
-                    await client.delete_messages(chat_id, last_msg_id)
-                except Exception as e:
-                    logger.warning(f"Failed to delete last message for user {chat_id}: {e}")
-
             # Download and save the file with progress bar
             download_msg = await message.reply("Downloading...")
             await track_bot_message(chat_id, download_msg.id)  # Track this message for deletion
@@ -230,10 +336,17 @@ async def pdf_handler(client, message):
                 pdf_count = len(list(user_dir.glob("*.pdf")))
 
                 # Notify user with the PDF details, page count, and the updated PDF count
+                buttons = InlineKeyboardMarkup(
+                    [[
+                        InlineKeyboardButton("🪢 Merge", callback_data="merge"),
+                        InlineKeyboardButton("✂️ Split", callback_data="split")
+                    ]]
+                )
                 notify_msg = await download_msg.edit(
                     f"{pdf_count} PDF Added!\n\nPDF Name: {unique_file_name}\n\n"
                     f"Total Pages: {page_count}\n\n"
-                    "Send Other PDFs or Use /merge to combine them,\n/split - to split."
+                    "Choose an action below:",
+                    reply_markup=buttons
                 )
                 await track_bot_message(chat_id, notify_msg.id)  # Track this message for deletion
                 user_states[chat_id]["last_download_msg_id"] = notify_msg.id
@@ -245,78 +358,6 @@ async def pdf_handler(client, message):
         reply_msg = await message.reply("This file is not a PDF. Please upload a valid PDF file.")
         await track_bot_message(str(message.chat.id), reply_msg.id)
 
-
-
-
-
-@app.on_message(filters.command("merge"))
-async def merge_handler(client, message):
-    chat_id = str(message.chat.id)
-    user_dir = temp_dir / chat_id
-    pdf_files = sorted(user_dir.glob("*.pdf"))  # Ensure sequential order
-
-    if len(pdf_files) < 2:
-        await message.reply("Please Upload at Least Two PDFs to Merge.")
-        return
-
-    # Use the base name of the first PDF uploaded, excluding the extension
-    first_pdf_base_name = user_states[chat_id]["first_pdf_base_name"]
-    output_path = user_dir / f"{first_pdf_base_name}.pdf"
-
-    try:
-        merge_pdfs(pdf_files, output_path)
-        await send_file_to_user(chat_id, message, output_path)
-    except Exception as e:
-        await message.reply(f"Error during merging: {e}")
-        shutil.rmtree(user_dir, ignore_errors=True)  # Clean up user files
-
-@app.on_message(filters.command("split"))
-async def split_handler(client, message):
-    chat_id = str(message.chat.id)
-    user_dir = temp_dir / chat_id
-    pdf_files = list(user_dir.glob("*.pdf"))
-
-    if len(pdf_files) != 1:
-        await message.reply("Please upload a single PDF file to split.")
-        return
-
-    # Extract arguments from the command
-    args = message.text.split()
-    if len(args) != 2:
-        await message.reply("Invalid command format! Use (eg:- /split 1-3 or /split 5).")
-        return
-
-    try:
-        input_file = pdf_files[0]
-        reader = PdfReader(input_file)
-        total_pages = len(reader.pages)
-
-        # Determine the split range
-        if "-" in args[1]:
-            # Handle range format (e.g., 1-4)
-            start, end = map(int, args[1].split("-"))
-            if start < 1 or end > total_pages or start > end:
-                await message.reply(f"Invalid page range! Please choose between 1 and {total_pages}.")
-                return
-            page_numbers = range(start, end + 1)
-        else:
-            # Handle single page format (e.g., 5)
-            page_number = int(args[1])
-            if page_number < 1 or page_number > total_pages:
-                await message.reply(f"Invalid page number! Please choose between 1 and {total_pages}.")
-                return
-            page_numbers = [page_number]
-
-        # Split the specified pages into a new PDF
-        first_pdf_base_name = user_states[chat_id]["first_pdf_base_name"]
-        output_path = user_dir / f"{first_pdf_base_name}.pdf"
-
-        split_pdf(input_file, output_path, page_numbers)
-        await send_file_to_user(chat_id, message, output_path)
-    except Exception as e:
-        logger.error(f"Error splitting the PDF: {e}")
-        await message.reply(f"Error splitting the PDF: {e}")
-        shutil.rmtree(user_dir, ignore_errors=True)  # Clean up user files
 
 
 async def send_file_to_user(chat_id, message, file_path):
