@@ -1,4 +1,5 @@
--from pyrogram import Client, filters
+
+from pyrogram import Client, filters
 from PyPDF2 import PdfReader, PdfWriter
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 import os
@@ -230,9 +231,8 @@ async def pdf_handler(client, message):
 
                 # Notify user with the PDF details, page count, and the updated PDF count
                 notify_msg = await download_msg.edit(
-                    f"Saved!\n\nPDF Name: {unique_file_name}\n\n"
+                    f"{pdf_count} PDF Added!\n\nPDF Name: {unique_file_name}\n\n"
                     f"Total Pages: {page_count}\n\n"
-                    f"Total PDFs Added: {pdf_count}\n\n"
                     "Send Other PDFs or Use /merge to combine them,\n/split - to split."
                 )
                 await track_bot_message(chat_id, notify_msg.id)  # Track this message for deletion
