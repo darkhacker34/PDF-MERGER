@@ -1,4 +1,4 @@
-from pyrogram import Client, filters
+-from pyrogram import Client, filters
 from PyPDF2 import PdfReader, PdfWriter
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 import os
@@ -221,15 +221,19 @@ async def pdf_handler(client, message):
             try:
                 await message.download(file_path, progress=progress, progress_args=(download_msg, original_file_name))
 
-                # Get total page count
+                # Get total page count of the uploaded PDF
                 reader = PdfReader(file_path)
                 page_count = len(reader.pages)
 
-                # Notify user with page count and instructions
+                # Count the total number of PDFs in the user's directory
+                pdf_count = len(list(user_dir.glob("*.pdf")))
+
+                # Notify user with the PDF details, page count, and the updated PDF count
                 notify_msg = await download_msg.edit(
                     f"Saved!\n\nPDF Name: {unique_file_name}\n\n"
-                    f"Total Pages : {page_count}\n\n"
-                    "Send Other PDFs or Use /merge to combine it,\n/split - to split."
+                    f"Total Pages: {page_count}\n\n"
+                    f"Total PDFs Added: {pdf_count}\n\n"
+                    "Send Other PDFs or Use /merge to combine them,\n/split - to split."
                 )
                 await track_bot_message(chat_id, notify_msg.id)  # Track this message for deletion
                 user_states[chat_id]["last_download_msg_id"] = notify_msg.id
@@ -240,6 +244,7 @@ async def pdf_handler(client, message):
     else:
         reply_msg = await message.reply("This file is not a PDF. Please upload a valid PDF file.")
         await track_bot_message(str(message.chat.id), reply_msg.id)
+
 
 
 
