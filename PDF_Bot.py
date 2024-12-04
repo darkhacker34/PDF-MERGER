@@ -203,7 +203,7 @@ async def progress(current, total, message, file_name):
     
     progress_percent = (current / total) * 100
     progress_blocks = int(progress_percent // 10)  # 10 blocks for a 100% bar
-    progress_bar = "🟩" * progress_blocks + "⬜" * (10 - progress_blocks)
+    progress_bar = "⚫" * progress_blocks + "⚪" * (10 - progress_blocks)
     progress_text = f"<b>In Process ⏳: {file_name}</b>\n\n[{progress_bar}] <i>{progress_percent:.1f}%</i>"
     await message.edit(progress_text)
 
