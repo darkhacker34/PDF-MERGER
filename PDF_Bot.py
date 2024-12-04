@@ -73,11 +73,12 @@ temp_dir = Path(tempfile.gettempdir())
 user_states = {}
 
 # Helper function to merge PDFs using PyPDF2
-def merge_pdfs(pdf_list, output_path):
+def merge_pdfs(pdf_list, output_path, chat_id):
     try:
         writer = PdfWriter()
         for pdf_path in pdf_list:
-            if user_states.get(chat_id, {}).get("cancel"):  # Check cancellation
+            # Check cancellation
+            if user_states.get(chat_id, {}).get("cancel"):
                 raise Exception("Operation canceled by the user.")
             reader = PdfReader(pdf_path)
             for page in reader.pages:
@@ -87,6 +88,7 @@ def merge_pdfs(pdf_list, output_path):
     except Exception as e:
         logger.error(f"Error merging PDFs: {e}")
         raise e
+
 
 @app.on_callback_query(filters.regex(r"cancel"))
 async def cancel_handler(client, callback_query: CallbackQuery):
@@ -235,11 +237,13 @@ async def merge_handler(client, callback_query: CallbackQuery):
     output_path = user_dir / f"{first_pdf_base_name}.pdf"
 
     try:
-        merge_pdfs(pdf_files, output_path)
+        merge_pdfs(pdf_files, output_path, chat_id)  # Pass pdf_list, output_path, and chat_id
         await send_file_to_user(chat_id, callback_query.message, output_path)
     except Exception as e:
         await callback_query.message.edit_text(f"Error during merging: {e}")
         shutil.rmtree(user_dir, ignore_errors=True)  # Clean up user files
+
+
 
 @app.on_callback_query(filters.regex(r"split"))
 async def split_handler(client, callback_query: CallbackQuery):
