@@ -237,7 +237,7 @@ async def merge_handler(client, callback_query: CallbackQuery):
 
     # Use the base name of the first PDF uploaded, excluding the extension
     first_pdf_base_name = user_states[chat_id]["first_pdf_base_name"]
-    output_path = user_dir / f"{first_pdf_base_name}_merged.pdf"
+    output_path = user_dir / f"{first_pdf_base_name}.pdf"
 
     try:
         merge_pdfs(pdf_files, output_path, chat_id)  # Pass pdf_list, output_path, and chat_id
