@@ -1,3 +1,4 @@
+
 from pyrogram import Client, filters
 from PyPDF2 import PdfReader, PdfWriter
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
@@ -334,8 +335,17 @@ async def cancel_handler(client, callback_query: CallbackQuery):
     if chat_id in user_states:
         user_states[chat_id]["cancel"] = True
 
+    # Clean up temporary files
+    user_dir = temp_dir / chat_id
+    shutil.rmtree(user_dir, ignore_errors=True)
+
+    # Reset user state
+    user_states.pop(chat_id, None)
+
     # Notify the user
     await callback_query.message.edit_text("❌ Operation canceled. You can start a new task.")
+
+
 
 @app.on_message(filters.document)
 async def pdf_handler(client, message):
@@ -388,19 +398,21 @@ async def pdf_handler(client, message):
                     [
                         [
                             InlineKeyboardButton("🪢 Merge", callback_data="merge"),
-                            InlineKeyboardButton("✂️ Split", callback_data="split")
-                            ],[
-                                InlineKeyboardButton("❌ Cancel", callback_data="cancel")
-                                ]
-                                ]
-                                )
+                            InlineKeyboardButton("✂️ Split", callback_data="split"),
+                        ],
+                        [
+                            InlineKeyboardButton("📂 List Files", callback_data="list_files"),
+                            InlineKeyboardButton("❌ Cancel", callback_data="cancel"),
+                        ],
+                    ]
+                )
 
                 notify_msg = await download_msg.edit(
                     f"{pdf_count} PDF Added!\n\nPDF Name: {unique_file_name}\n\n"
                     f"Total Pages: {page_count}\n\n"
                     "Choose an action below:",
-                    reply_markup=buttons
-                    )
+                    reply_markup=buttons,
+                )
                 await track_bot_message(chat_id, notify_msg.id)  # Track this message for deletion
                 user_states[chat_id]["last_download_msg_id"] = notify_msg.id
 
@@ -410,6 +422,85 @@ async def pdf_handler(client, message):
     else:
         reply_msg = await message.reply("This file is not a PDF. Please upload a valid PDF file.")
         await track_bot_message(str(message.chat.id), reply_msg.id)
+
+
+@app.on_callback_query(filters.regex(r"list_files"))
+async def list_files_handler(client, callback_query: CallbackQuery):
+    chat_id = str(callback_query.message.chat.id)
+    user_dir = temp_dir / chat_id
+
+    # Check if user directory exists
+    if not user_dir.exists() or not any(user_dir.iterdir()):
+        await callback_query.message.edit_text("📂 No files uploaded yet.", reply_markup=None)
+        return
+
+    # List files with delete buttons for each
+    files = list(user_dir.glob("*.pdf"))
+    file_buttons = [
+        [
+            InlineKeyboardButton(f"🗑️ Delete {file.name}", callback_data=f"delete_file:{file.name}")
+        ]
+        for file in files
+    ]
+
+    # Add "Back" button to return to the main menu
+    file_buttons.append([InlineKeyboardButton("⬅ Back", callback_data="main_menu")])
+
+    await callback_query.message.edit_text(
+        "📂 **Uploaded Files:**\n\nSelect a file to delete:",
+        reply_markup=InlineKeyboardMarkup(file_buttons),
+    )
+
+
+@app.on_callback_query(filters.regex(r"main_menu"))
+async def main_menu_handler(client, callback_query: CallbackQuery):
+    chat_id = str(callback_query.message.chat.id)
+    user_dir = temp_dir / chat_id
+
+    # Count the total number of PDFs in the user's directory
+    pdf_count = len(list(user_dir.glob("*.pdf")))
+
+    # Notify user with the main menu options
+    buttons = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("🪢 Merge", callback_data="merge"),
+                InlineKeyboardButton("✂️ Split", callback_data="split"),
+            ],
+            [
+                InlineKeyboardButton("📂 List Files", callback_data="list_files"),
+                InlineKeyboardButton("❌ Cancel", callback_data="cancel"),
+            ],
+        ]
+    )
+
+    await callback_query.message.edit_text(
+        f"📂 **Main Menu:**\n\n"
+        f"Uploaded PDFs: {pdf_count}\n\n"
+        "Choose an action below:",
+        reply_markup=buttons,
+    )
+
+
+@app.on_callback_query(filters.regex(r"delete_file:(.+)"))
+async def delete_file_handler(client, callback_query: CallbackQuery):
+    chat_id = str(callback_query.message.chat.id)
+    file_name = callback_query.matches[0].group(1)
+    user_dir = temp_dir / chat_id
+    file_path = user_dir / file_name
+
+    # Delete the selected file
+    if file_path.exists():
+        file_path.unlink()  # Remove the file
+        await callback_query.answer(f"File {file_name} deleted.", show_alert=True)
+
+        # Refresh the file list
+        await list_files_handler(client, callback_query)
+    else:
+        await callback_query.answer("File not found!", show_alert=True)
+
+
+
 
 
 
@@ -466,3 +557,4 @@ if __name__ == '__main__':
 
     # Start the Pyrogram Client
     app.run()
+
