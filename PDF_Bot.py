@@ -1,4 +1,5 @@
 
+
 from pyrogram import Client, filters
 from PyPDF2 import PdfReader, PdfWriter
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
@@ -221,7 +222,7 @@ async def track_bot_message(chat_id, message_id):
     user_states[chat_id]["messages_to_delete"].append(message_id)
 
 
-@app.on_callback_query(filters.regex(r"merge"))
+@app.on_callback_query(filters.regex(r"mg"))
 async def merge_handler(client, callback_query: CallbackQuery):
     chat_id = str(callback_query.message.chat.id)
     user_dir = temp_dir / chat_id
@@ -247,7 +248,7 @@ async def merge_handler(client, callback_query: CallbackQuery):
 
 
 
-@app.on_callback_query(filters.regex(r"split"))
+@app.on_callback_query(filters.regex(r"splt"))
 async def split_handler(client, callback_query: CallbackQuery):
     chat_id = str(callback_query.message.chat.id)
     user_dir = temp_dir / chat_id
@@ -275,7 +276,7 @@ async def split_handler(client, callback_query: CallbackQuery):
                 [[InlineKeyboardButton("❌ Cancel", callback_data="cancel")]]
             ),
         )
-        user_states[chat_id]["action"] = "split"
+        user_states[chat_id]["action"] = "splt"
         user_states[chat_id]["total_pages"] = total_pages
 
     except Exception as e:
@@ -288,7 +289,7 @@ async def split_handler(client, callback_query: CallbackQuery):
 async def handle_split_range(client, message):
     chat_id = str(message.chat.id)
     state = user_states.get(chat_id, {})
-    if state.get("action") != "split":
+    if state.get("action") != "splt":
         return  # Ignore messages unrelated to split actions
 
     try:
@@ -397,8 +398,8 @@ async def pdf_handler(client, message):
                 buttons = InlineKeyboardMarkup(
                     [
                         [
-                            InlineKeyboardButton("🪢 Merge", callback_data="merge"),
-                            InlineKeyboardButton("✂️ Split", callback_data="split"),
+                            InlineKeyboardButton("🪢 Merge", callback_data="mg"),
+                            InlineKeyboardButton("✂️ Split", callback_data="splt"),
                         ],
                         [
                             InlineKeyboardButton("📂 List Files", callback_data="list_files"),
@@ -464,8 +465,8 @@ async def main_menu_handler(client, callback_query: CallbackQuery):
     buttons = InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("🪢 Merge", callback_data="merge"),
-                InlineKeyboardButton("✂️ Split", callback_data="split"),
+                InlineKeyboardButton("🪢 Merge", callback_data="mg"),
+                InlineKeyboardButton("✂️ Split", callback_data="splt"),
             ],
             [
                 InlineKeyboardButton("📂 List Files", callback_data="list_files"),
@@ -495,12 +496,18 @@ async def delete_file_handler(client, callback_query: CallbackQuery):
         await callback_query.answer(f"File {file_name} deleted.", show_alert=True)
 
         # Refresh the file list
-        await list_files_handler(client, callback_query)
+        files_remaining = list(user_dir.glob("*.pdf"))  # Check remaining files
+        if len(files_remaining) > 0:  # If files still exist, refresh the list
+            await list_files_handler(client, callback_query)
+        else:  # If no files are left, return to the main menu
+            await callback_query.message.edit_text(
+                "📂 No files uploaded yet.",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("⬅ Back", callback_data="main_menu")]]
+                )
+            )
     else:
         await callback_query.answer("File not found!", show_alert=True)
-
-
-
 
 
 
@@ -549,12 +556,9 @@ async def send_file_to_user(chat_id, message, file_path):
     user_states.pop(chat_id, None)  # Clear state
 
 
-
-
 # Start the Flask server in a separate thread
 if __name__ == '__main__':
     threading.Thread(target=run_flask).start()
 
     # Start the Pyrogram Client
     app.run()
-
