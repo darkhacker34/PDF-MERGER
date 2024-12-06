@@ -1,5 +1,3 @@
-
-
 from pyrogram import Client, filters
 from PyPDF2 import PdfReader, PdfWriter
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
@@ -285,47 +283,130 @@ async def split_handler(client, callback_query: CallbackQuery):
         return
 
 
-@app.on_message(filters.text)
-async def handle_split_range(client, message):
+@app.on_message(filters.text & filters.private)
+async def handle_text_messages(client, message):
     chat_id = str(message.chat.id)
     state = user_states.get(chat_id, {})
-    if state.get("action") != "splt":
-        return  # Ignore messages unrelated to split actions
+    current_action = state.get("action")
 
-    try:
+
+    # Handle Rename Action
+    if current_action == "rename":
+        new_name = message.text.strip()  # Get the new name
+        if not new_name:  # Validate the name
+            invalid_msg = await message.reply("Invalid name. Please try again.")
+            user_states[chat_id].setdefault("messages_to_delete", []).append(invalid_msg.id)
+            return
+
+        # Get the uploaded PDF path and directory
+        pdf_path = user_states[chat_id].get("uploaded_pdf_path")
+        if not pdf_path:
+            error_msg = await message.reply("No PDF found for renaming. Please upload a file first.")
+            user_states[chat_id].setdefault("messages_to_delete", []).append(error_msg.id)
+            return
+
+        user_dir = temp_dir / chat_id
+        new_pdf_path = user_dir / f"{new_name}.pdf"
+
+        try:
+            # Rename the file with progress
+            reader = PdfReader(pdf_path)
+            writer = PdfWriter()
+            total_pages = len(reader.pages)  # Get total number of pages
+            rename_msg = await message.reply("Renaming the file...")  # Initial progress message
+            user_states[chat_id].setdefault("messages_to_delete", []).append(rename_msg.id)
+
+            # Add pages to the new PDF with progress updates
+            for current_page, page in enumerate(reader.pages, start=1):
+                writer.add_page(page)
+
+                # Update progress after each page
+                await progress(current_page, total_pages, rename_msg, new_name)
+
+            # Save the renamed file
+            with open(new_pdf_path, "wb") as new_pdf_file:
+                writer.write(new_pdf_file)
+
+            # Notify the user and send the renamed file
+            completion_msg = await rename_msg.edit("Renaming complete. Uploading the file...")
+            user_states[chat_id]["messages_to_delete"].append(completion_msg.id)
+
+            sent_file_msg = await message.reply_document(
+                document=new_pdf_path,
+                caption=f"Here is your renamed PDF: `{new_name}.pdf`"
+            )
+
+        except Exception as e:
+            error_msg = await message.reply(f"An error occurred while renaming: {e}")
+            user_states[chat_id].setdefault("messages_to_delete", []).append(error_msg.id)
+            logger.error(f"Error renaming PDF for chat_id {chat_id}: {e}")
+        finally:
+            # Clean up temporary files
+            if os.path.exists(pdf_path):
+                os.remove(pdf_path)
+            if os.path.exists(new_pdf_path):
+                os.remove(new_pdf_path)
+
+            # Remove user directory if empty
+            if user_dir.exists() and not any(user_dir.iterdir()):
+                shutil.rmtree(user_dir)
+
+            # Delete bot-generated messages
+            try:
+                messages_to_delete = user_states[chat_id].get("messages_to_delete", [])
+                await client.delete_messages(chat_id, messages_to_delete)
+            except Exception as e:
+                logger.error(f"Error deleting messages for chat_id {chat_id}: {e}")
+
+            # Clear user state
+            user_states.pop(chat_id, None)
+            return
+        await message.reply("I didn't understand that. Please use /help for instructions.")
+        return
+
+
+    elif current_action == "splt":
         user_dir = temp_dir / chat_id
         pdf_files = list(user_dir.glob("*.pdf"))
-        input_file = pdf_files[0]
+        input_file = pdf_files[0]  # Assume there's only one PDF file for splitting
         total_pages = state.get("total_pages")
 
-        # Parse the user's page range input
-        if "-" in message.text:
-            start, end = map(int, message.text.split("-"))
-            if start < 1 or end > total_pages or start > end:
-                raise ValueError(f"Invalid page range! Must be between 1 and {total_pages}.")
-            page_numbers = range(start, end + 1)
-        else:
-            page_number = int(message.text)
-            if page_number < 1 or page_number > total_pages:
-                raise ValueError(f"Invalid page number! Must be between 1 and {total_pages}.")
-            page_numbers = [page_number]
+        try:
+            # Parse user input for page range
+            if "-" in message.text:
+                start, end = map(int, message.text.split("-"))
+                if start < 1 or end > total_pages or start > end:
+                    raise ValueError(f"Invalid page range! Must be between 1 and {total_pages}.")
+                page_numbers = range(start, end + 1)
+            else:
+                page_number = int(message.text)
+                if page_number < 1 or page_number > total_pages:
+                    raise ValueError(f"Invalid page number! Must be between 1 and {total_pages}.")
+                page_numbers = [page_number]
 
-        # Split the PDF
-        first_pdf_base_name = state.get("first_pdf_base_name", "split_output")
-        output_path = user_dir / f"{first_pdf_base_name}.pdf"
-        split_pdf(input_file, output_path, page_numbers)
+            # Split the PDF
+            original_file_name = input_file.stem  # Get the base name of the file (without extension)
+            output_path = user_dir / f"{original_file_name}.pdf"
+            split_pdf(input_file, output_path, page_numbers)
 
-        # Send the resulting file to the user
-        await send_file_to_user(chat_id, message, output_path)
-        user_states.pop(chat_id, None)  # Reset state after successful split
+            # Send the split file to the user
+            await send_file_to_user(chat_id, message, output_path)
+            user_states.pop(chat_id, None)  # Reset state after successful split
 
-    except ValueError as ve:
-        logger.warning(f"User input error: {ve}")
-        await message.reply(str(ve))
-    except Exception as e:
-        logger.error(f"Error splitting the PDF for chat_id {chat_id}: {e}")
-        await message.reply(f"Error splitting the PDF: {e}")
-        user_states.pop(chat_id, None)  # Clean up state on error
+        except ValueError as ve:
+            logger.warning(f"User input error: {ve}")
+            await message.reply(str(ve))
+        except Exception as e:
+            logger.error(f"Error splitting the PDF for chat_id {chat_id}: {e}")
+            await message.reply(f"Error splitting the PDF: {e}")
+            user_states.pop(chat_id, None)  # Clean up state on error
+        return
+
+    # Default response for other text inputs
+    await message.reply("I didn't understand that. Please use /help for instructions.")
+
+
+
 
 
 @app.on_callback_query(filters.regex(r"cancel"))
@@ -396,18 +477,22 @@ async def pdf_handler(client, message):
 
                 # Notify user with the PDF details, page count, and the updated PDF count
                 buttons = InlineKeyboardMarkup(
-                    [
-                        [
-                            InlineKeyboardButton("🪢 Merge", callback_data="mg"),
-                            InlineKeyboardButton("✂️ Split", callback_data="splt"),
-                        ],
-                        [
-                            InlineKeyboardButton("📂 List Files", callback_data="list_files"),
-                            InlineKeyboardButton("❌ Cancel", callback_data="cancel"),
-                        ],
-                    ]
-                )
+    [
+        [
+            InlineKeyboardButton("🪢 Merge", callback_data="mg"),
+            InlineKeyboardButton("✂️ Split", callback_data="splt"),
+        ],
+        [
+            InlineKeyboardButton("📂 List Files", callback_data="list_files"),
+            InlineKeyboardButton("📄 Rename", callback_data="rename"),
+        ],
+        [
+            InlineKeyboardButton("❌ Cancel", callback_data="cancel"),
+        ],
+    ]
+)
 
+                
                 notify_msg = await download_msg.edit(
                     f"{pdf_count} PDF Added!\n\nPDF Name: {unique_file_name}\n\n"
                     f"Total Pages: {page_count}\n\n"
@@ -423,6 +508,31 @@ async def pdf_handler(client, message):
     else:
         reply_msg = await message.reply("This file is not a PDF. Please upload a valid PDF file.")
         await track_bot_message(str(message.chat.id), reply_msg.id)
+
+
+@app.on_callback_query(filters.regex(r"rename"))
+async def rename_handler(client, callback_query: CallbackQuery):
+    chat_id = str(callback_query.message.chat.id)
+    user_dir = temp_dir / chat_id
+    pdf_files = list(user_dir.glob("*.pdf"))
+
+    # Check if only one PDF is uploaded
+    if len(pdf_files) != 1:
+        await callback_query.answer("Send a single PDF, then click Rename.", show_alert=True)
+        return
+
+    # Prompt user for a new name
+    nam = await callback_query.message.edit_text(
+        "Send me the new name (without extension) for the PDF:",
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("❌ Cancel", callback_data="cancel")]]
+        ),
+    )
+
+    # Update user state
+    user_states[chat_id]["action"] = "rename"
+    user_states[chat_id]["uploaded_pdf_path"] = pdf_files[0]
+    user_states[chat_id]["messages_to_delete"] = []
 
 
 @app.on_callback_query(filters.regex(r"list_files"))
@@ -463,17 +573,21 @@ async def main_menu_handler(client, callback_query: CallbackQuery):
 
     # Notify user with the main menu options
     buttons = InlineKeyboardMarkup(
+    [
         [
-            [
-                InlineKeyboardButton("🪢 Merge", callback_data="mg"),
-                InlineKeyboardButton("✂️ Split", callback_data="splt"),
-            ],
-            [
-                InlineKeyboardButton("📂 List Files", callback_data="list_files"),
-                InlineKeyboardButton("❌ Cancel", callback_data="cancel"),
-            ],
-        ]
-    )
+            InlineKeyboardButton("🪢 Merge", callback_data="mg"),
+            InlineKeyboardButton("✂️ Split", callback_data="splt"),
+        ],
+        [
+            InlineKeyboardButton("📂 List Files", callback_data="list_files"),
+            InlineKeyboardButton("📄 Rename", callback_data="rename"),
+        ],
+        [
+            InlineKeyboardButton("❌ Cancel", callback_data="cancel"),
+        ],
+    ]
+)
+
 
     await callback_query.message.edit_text(
         f"📂 **Main Menu:**\n\n"
@@ -493,7 +607,7 @@ async def delete_file_handler(client, callback_query: CallbackQuery):
     # Delete the selected file
     if file_path.exists():
         file_path.unlink()  # Remove the file
-        await callback_query.answer(f"File {file_name} deleted.", show_alert=True)
+        await callback_query.answer(f"{file_name} deleted.", show_alert=True)
 
         # Refresh the file list
         files_remaining = list(user_dir.glob("*.pdf"))  # Check remaining files
