@@ -1,3 +1,5 @@
+
+
 from pyrogram import Client, filters
 from PyPDF2 import PdfReader, PdfWriter
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
@@ -55,6 +57,7 @@ def fetch_logs():
 
 def run_flask():
     bot.run(host='0.0.0.0', port=8000)
+
 
 # Load environment variables
 API_ID = os.getenv("TELEGRAM_API_ID")
@@ -223,26 +226,28 @@ async def track_bot_message(chat_id, message_id):
 @app.on_callback_query(filters.regex(r"mg"))
 async def merge_handler(client, callback_query: CallbackQuery):
     chat_id = str(callback_query.message.chat.id)
-    user_dir = temp_dir / chat_id
-    pdf_files = sorted(user_dir.glob("*.pdf"))  # Ensure sequential order
+    uploaded_files = user_states.get(chat_id, {}).get("uploaded_files", [])
 
-    if len(pdf_files) < 2:  # Check if at least two PDFs are uploaded
+    if len(uploaded_files) < 2:  # Check if at least two PDFs are uploaded
         await callback_query.answer(  # Send a popup message
-            "Please Upload at Least Two PDFs to Merge.", 
+            "Please upload at least two PDFs to merge.", 
             show_alert=True  # Set to True to display as a popup
         )
         return
 
     # Use the base name of the first PDF uploaded, excluding the extension
     first_pdf_base_name = user_states[chat_id]["first_pdf_base_name"]
+    user_dir = temp_dir / chat_id
     output_path = user_dir / f"{first_pdf_base_name}.pdf"
 
     try:
-        merge_pdfs(pdf_files, output_path, chat_id)  # Pass pdf_list, output_path, and chat_id
+        # Merge the PDFs in the order they were uploaded
+        merge_pdfs(uploaded_files, output_path, chat_id)
         await send_file_to_user(chat_id, callback_query.message, output_path)
     except Exception as e:
         await callback_query.message.edit_text(f"Error during merging: {e}")
         shutil.rmtree(user_dir, ignore_errors=True)  # Clean up user files
+
 
 
 
@@ -438,7 +443,7 @@ async def pdf_handler(client, message):
 
         # Reset cancellation flag for the user
         if chat_id not in user_states:
-            user_states[chat_id] = {}
+            user_states[chat_id] = {"uploaded_files": []}  # Track uploaded files in order
         user_states[chat_id]["cancel"] = False  # Reset cancel flag
 
         async with file_download_lock:
@@ -468,31 +473,33 @@ async def pdf_handler(client, message):
             try:
                 await message.download(file_path, progress=progress, progress_args=(download_msg, original_file_name))
 
+                # Add the file path to the list of uploaded files
+                user_states[chat_id]["uploaded_files"].append(file_path)
+
                 # Get total page count of the uploaded PDF
                 reader = PdfReader(file_path)
                 page_count = len(reader.pages)
 
-                # Count the total number of PDFs in the user's directory
-                pdf_count = len(list(user_dir.glob("*.pdf")))
+                # Count the total number of PDFs uploaded by the user
+                pdf_count = len(user_states[chat_id]["uploaded_files"])
 
                 # Notify user with the PDF details, page count, and the updated PDF count
                 buttons = InlineKeyboardMarkup(
-    [
-        [
-            InlineKeyboardButton("🪢 Merge", callback_data="mg"),
-            InlineKeyboardButton("✂️ Split", callback_data="splt"),
-        ],
-        [
-            InlineKeyboardButton("📂 List Files", callback_data="list_files"),
-            InlineKeyboardButton("📄 Rename", callback_data="rename"),
-        ],
-        [
-            InlineKeyboardButton("❌ Cancel", callback_data="cancel"),
-        ],
-    ]
-)
+                    [
+                        [
+                            InlineKeyboardButton("🪢 Merge", callback_data="mg"),
+                            InlineKeyboardButton("✂️ Split", callback_data="splt"),
+                        ],
+                        [
+                            InlineKeyboardButton("📂 List Files", callback_data="list_files"),
+                            InlineKeyboardButton("📄 Rename", callback_data="rename"),
+                        ],
+                        [
+                            InlineKeyboardButton("❌ Cancel", callback_data="cancel"),
+                        ],
+                    ]
+                )
 
-                
                 notify_msg = await download_msg.edit(
                     f"{pdf_count} PDF Added!\n\nPDF Name: {unique_file_name}\n\n"
                     f"Total Pages: {page_count}\n\n"
@@ -508,6 +515,7 @@ async def pdf_handler(client, message):
     else:
         reply_msg = await message.reply("This file is not a PDF. Please upload a valid PDF file.")
         await track_bot_message(str(message.chat.id), reply_msg.id)
+
 
 
 @app.on_callback_query(filters.regex(r"rename"))
