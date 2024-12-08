@@ -1,5 +1,3 @@
-
-
 from pyrogram import Client, filters
 from PyPDF2 import PdfReader, PdfWriter
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
@@ -107,7 +105,7 @@ async def cancel_handler(client, callback_query: CallbackQuery):
     user_states.pop(chat_id, None)
 
     # Notify the user
-    await callback_query.message.edit_text("❌ Operation canceled. You can start a new task.")
+    await callback_query.message.edit_text("❌ ᴏᴘᴇʀᴀᴛɪᴏɴ ᴄᴀɴᴄᴇʟᴇᴅ. ʏᴏᴜ ᴄᴀɴ sᴛᴀʀᴛ ᴀ ɴᴇᴡ ᴛᴀsᴋ.")
 
 
 # Helper function to split a PDF
@@ -142,7 +140,7 @@ async def start_handler(client, message):
     username = message.from_user.username
     await message.reply_photo(
         photo="https://raw.githubusercontent.com/darkhacker34/PDF-MERGER/refs/heads/main/MasterGreenLogo.jpg",
-        caption=f"Hello @{username},\n\n​🇸​​🇪​​🇳​​🇩​ ​🇾​​🇴​​🇺​​🇷​ ​🇲​​🇬​ ​🇶​​🇺​​🇴​​🇹​​🇦​​🇹​​🇮​​🇴​​🇳​\n\nUse /help For Instructions!",
+        caption=f"нєℓℓσ @{username},\n\n​𝙎𝙚𝙣𝙙​ ​𝙔𝙤𝙪𝙧​ ​𝙈𝙂​ 𝙌𝙪𝙤𝙩𝙖𝙩𝙞𝙤𝙣𝙨\n\nᴜsᴇ/help ғᴏʀ ɪɴsᴛʀᴜᴄᴛɪᴏɴs!",
         reply_markup=InlineKeyboardMarkup([[ 
             InlineKeyboardButton("👤 OWNER", url="https://t.me/master_green_uae"),
             InlineKeyboardButton("🌐 WEBSITE", url="https://www.mastergreen.ae")
@@ -259,7 +257,7 @@ async def split_handler(client, callback_query: CallbackQuery):
 
     if len(pdf_files) != 1:  # Ensure only one PDF is uploaded
         await callback_query.answer(  # Send a popup message
-            "Please upload a single PDF file to split.", 
+            "ᴘʟᴇᴀsᴇ ᴜᴘʟᴏᴀᴅ ᴀ sɪɴɢʟᴇ ᴘᴅғ ᴛᴏ sᴘʟɪᴛ.", 
             show_alert=True  # Set to True to display the message as a popup
         )
         return
