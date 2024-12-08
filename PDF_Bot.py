@@ -410,28 +410,6 @@ async def handle_text_messages(client, message):
 
 
 
-
-
-@app.on_callback_query(filters.regex(r"cancel"))
-async def cancel_handler(client, callback_query: CallbackQuery):
-    chat_id = str(callback_query.message.chat.id)
-
-    # Set the cancellation flag for the user
-    if chat_id in user_states:
-        user_states[chat_id]["cancel"] = True
-
-    # Clean up temporary files
-    user_dir = temp_dir / chat_id
-    shutil.rmtree(user_dir, ignore_errors=True)
-
-    # Reset user state
-    user_states.pop(chat_id, None)
-
-    # Notify the user
-    await callback_query.message.edit_text("❌ Operation canceled. You can start a new task.")
-
-
-
 @app.on_message(filters.document)
 async def pdf_handler(client, message):
     if message.document.mime_type == "application/pdf":
