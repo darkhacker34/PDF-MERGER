@@ -1,5 +1,5 @@
 from pyrogram import Client, filters
-from PyPDF2 import PdfReader, PdfWriter
+from PyPDF2 import PdfReader, PdfWriter, PdfMerger
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
 import os
 import tempfile
@@ -54,13 +54,13 @@ def fetch_logs():
         return "Log file not found.", 404
 
 def run_flask():
-    bot.run(host='0.0.0.0', port=8000)
+    bot.run(host='0.0.0.0', port=8080)
 
 
 # Load environment variables
-API_ID = os.getenv("TELEGRAM_API_ID")
-API_HASH = os.getenv("TELEGRAM_API_HASH")
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+API_ID = os.getenv("TELEGRAM_API_ID", '1917094')
+API_HASH = os.getenv("TELEGRAM_API_HASH", '43dbeb43f27f99752b44db7493bf38ad')
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", '6941473830:AAFnSuGhyDAU1LuOoBHQGBpeE1Im28-pV8k')
 
 # Initialize the bot
 app = Client("pdf_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
@@ -224,27 +224,40 @@ async def track_bot_message(chat_id, message_id):
 @app.on_callback_query(filters.regex(r"mg"))
 async def merge_handler(client, callback_query: CallbackQuery):
     chat_id = str(callback_query.message.chat.id)
-    uploaded_files = user_states.get(chat_id, {}).get("uploaded_files", [])
 
-    if len(uploaded_files) < 2:  # Check if at least two PDFs are uploaded
-        await callback_query.answer(  # Send a popup message
-            "Please upload at least two PDFs to merge.", 
-            show_alert=True  # Set to True to display as a popup
-        )
+    # Check if user has uploaded files
+    if chat_id not in user_states or not user_states[chat_id].get("uploaded_files"):
+        await callback_query.message.edit_text("📂 No files available to merge.", reply_markup=None)
         return
 
-    # Use the base name of the first PDF uploaded, excluding the extension
-    first_pdf_base_name = user_states[chat_id]["first_pdf_base_name"]
-    user_dir = temp_dir / chat_id
-    output_path = user_dir / f"{first_pdf_base_name}.pdf"
+    # Retrieve the uploaded files in order
+    uploaded_files = user_states[chat_id]["uploaded_files"]
 
+    # Ensure there are at least two files to merge
+    if len(uploaded_files) < 2:
+        await callback_query.message.edit_text("📂 At least two files are needed to merge.", reply_markup=None)
+        return
+
+    # Dynamically assign the output file name based on the first file
+    base_name = uploaded_files[0].stem  # Use the name of the first file (without extension)
+    output_file_name = f"{base_name}.pdf"
+    output_file_path = temp_dir / chat_id / output_file_name
+
+    # Merge the files
     try:
-        # Merge the PDFs in the order they were uploaded
-        merge_pdfs(uploaded_files, output_path, chat_id)
-        await send_file_to_user(chat_id, callback_query.message, output_path)
+        merger = PdfMerger()
+        for file_path in uploaded_files:
+            merger.append(str(file_path))
+        merger.write(output_file_path)
+        merger.close()
+
+        # Send the merged file to the user
+        await send_file_to_user(chat_id, callback_query.message, output_file_path)
+
     except Exception as e:
-        await callback_query.message.edit_text(f"Error during merging: {e}")
-        shutil.rmtree(user_dir, ignore_errors=True)  # Clean up user files
+        logger.error(f"Error merging files: {e}")
+        await callback_query.message.edit_text("An error occurred while merging the files.")
+
 
 
 
@@ -608,6 +621,7 @@ async def delete_file_handler(client, callback_query: CallbackQuery):
         await list_files_handler(client, callback_query)
     else:
         await callback_query.answer("File not found!", show_alert=True)
+
 
 
 
