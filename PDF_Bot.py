@@ -522,29 +522,32 @@ async def rename_handler(client, callback_query: CallbackQuery):
 @app.on_callback_query(filters.regex(r"list_files"))
 async def list_files_handler(client, callback_query: CallbackQuery):
     chat_id = str(callback_query.message.chat.id)
-    user_dir = temp_dir / chat_id
 
-    # Check if user directory exists
-    if not user_dir.exists() or not any(user_dir.iterdir()):
+    # Check if user has uploaded files
+    if chat_id not in user_states or not user_states[chat_id].get("uploaded_files"):
         await callback_query.message.edit_text("📂 No files uploaded yet.", reply_markup=None)
         return
 
-    # List files with delete buttons for each
-    files = list(user_dir.glob("*.pdf"))
+    # Retrieve files in the uploaded order from user state
+    uploaded_files = user_states[chat_id]["uploaded_files"]
+
+    # Generate delete buttons for each file in uploaded order
     file_buttons = [
         [
-            InlineKeyboardButton(f"🗑️ Delete {file.name}", callback_data=f"delete_file:{file.name}")
+            InlineKeyboardButton(f"🗑️ Delete {file_path.name}", callback_data=f"delete_file:{file_path.name}")
         ]
-        for file in files
+        for file_path in uploaded_files
     ]
 
-    # Add "Back" button to return to the main menu
+    # Add a "Back" button to return to the main menu
     file_buttons.append([InlineKeyboardButton("⬅ Back", callback_data="main_menu")])
 
+    # Display the file list to the user
     await callback_query.message.edit_text(
-        "📂 **Uploaded Files:**\n\nSelect a file to delete:",
+        "📂 **Uploaded Files (Order of Upload):**\n\nSelect a file to delete:",
         reply_markup=InlineKeyboardMarkup(file_buttons),
     )
+
 
 
 @app.on_callback_query(filters.regex(r"main_menu"))
@@ -591,21 +594,21 @@ async def delete_file_handler(client, callback_query: CallbackQuery):
     # Delete the selected file
     if file_path.exists():
         file_path.unlink()  # Remove the file
+
+        # Update the upload list in user state
+        if chat_id in user_states:
+            uploaded_files = user_states[chat_id]["uploaded_files"]
+            user_states[chat_id]["uploaded_files"] = [
+                f for f in uploaded_files if f.name != file_name
+            ]
+
         await callback_query.answer(f"{file_name} deleted.", show_alert=True)
 
         # Refresh the file list
-        files_remaining = list(user_dir.glob("*.pdf"))  # Check remaining files
-        if len(files_remaining) > 0:  # If files still exist, refresh the list
-            await list_files_handler(client, callback_query)
-        else:  # If no files are left, return to the main menu
-            await callback_query.message.edit_text(
-                "📂 No files uploaded yet.",
-                reply_markup=InlineKeyboardMarkup(
-                    [[InlineKeyboardButton("⬅ Back", callback_data="main_menu")]]
-                )
-            )
+        await list_files_handler(client, callback_query)
     else:
         await callback_query.answer("File not found!", show_alert=True)
+
 
 
 
