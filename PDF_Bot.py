@@ -140,7 +140,7 @@ async def start_handler(client, message):
     username = message.from_user.username
     await message.reply_photo(
         photo="https://raw.githubusercontent.com/darkhacker34/PDF-MERGER/refs/heads/main/MasterGreenLogo.jpg",
-        caption=f"нєℓℓσ @{username},\n\n​𝙎𝙚𝙣𝙙​ ​𝙔𝙤𝙪𝙧​ ​𝙈𝙂​ 𝙌𝙪𝙤𝙩𝙖𝙩𝙞𝙤𝙣𝙨\n\nᴜsᴇ/help ғᴏʀ ɪɴsᴛʀᴜᴄᴛɪᴏɴs!",
+        caption=f"нєℓℓσ @{username},\n\n​𝙎𝙚𝙣𝙙​ ​𝙔𝙤𝙪𝙧​ ​𝙈𝙂​ 𝙌𝙪𝙤𝙩𝙖𝙩𝙞𝙤𝙣𝙨\n\nᴜsᴇ /help ғᴏʀ ɪɴsᴛʀᴜᴄᴛɪᴏɴs!",
         reply_markup=InlineKeyboardMarkup([[ 
             InlineKeyboardButton("👤 OWNER", url="https://t.me/master_green_uae"),
             InlineKeyboardButton("🌐 WEBSITE", url="https://www.mastergreen.ae")
