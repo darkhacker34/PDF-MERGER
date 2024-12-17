@@ -246,7 +246,7 @@ async def merge_handler(client, callback_query: CallbackQuery):
 
     # Ensure there are at least two files to merge
     if len(uploaded_files) < 2:
-        await callback_query.message.edit_text("📂 At least two files are needed to merge.", reply_markup=None)
+        await callback_query.answer("📂 At least two files are needed to merge.", show_alert=True)
         return
 
     # Dynamically assign the output file name based on the first file
@@ -268,9 +268,6 @@ async def merge_handler(client, callback_query: CallbackQuery):
     except Exception as e:
         logger.error(f"Error merging files: {e}")
         await callback_query.message.edit_text("An error occurred while merging the files.")
-
-
-
 
 
 @app.on_callback_query(filters.regex(r"splt"))
