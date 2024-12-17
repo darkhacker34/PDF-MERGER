@@ -184,7 +184,7 @@ I can help you with your PDF files. Here’s how to use me:
    - Select "Rename" and send a new PDF Name (without extension) (e.g, if You want to set new name `MasterG.pdf` then send `MasterG` withot `.pdf`)
 
 **Additional Commands:**
-➡ `/clear` - Delete all temporary files and reset your session.
+➡ /clear - Delete all temporary files and reset your session.
 
 Need assistance? Feel free to ask! 😊
 """
