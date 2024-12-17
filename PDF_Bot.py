@@ -164,20 +164,24 @@ async def clear_handler(client, message):
 HELP_MSG = """
 👋 **Welcome to PDF Bot!**
 
-I can help you with managing your PDF files. Here’s how to use me:
+I can help you with your PDF files. Here’s how to use me:
 
 **How it works:**
 1. Upload one or more PDF files.
-2. I’ll show you options to **Merge** or **Split** your PDFs using buttons.
+2. I’ll show you options to **Merge**, **Split** and **Rename** your PDFs using buttons.
 
 **Features:**
-➡ **Merge PDFs**:
+➡ **Merge**:
    - Upload multiple PDF files.
    - Select "Merge" to combine them into a single PDF.
 
-➡ **Split PDF**:
+➡ **Split**:
    - Upload a single PDF file.
    - Select "Split" and provide the page range or a single page number (e.g., `1-3` or `5`).
+
+➡ **Rename**:
+   - Upload a single PDF file.
+   - Select "Rename" and send a new PDF Name (without extension) (e.g, if You want to set new name `MasterG.pdf` then send `MasterG` withot `.pdf`)
 
 **Additional Commands:**
 ➡ `/clear` - Delete all temporary files and reset your session.
@@ -189,7 +193,14 @@ Need assistance? Feel free to ask! 😊
 # Handle "/help" command
 @app.on_message(filters.command("help"))
 async def help_handler(client, message):
-    await message.reply(HELP_MSG)
+    await message.reply(
+        text=HELP_MSG,
+        reply_markup=InlineKeyboardMarkup([[ 
+            InlineKeyboardButton("👤 OWNER", url="https://t.me/master_green_uae"),
+            InlineKeyboardButton("🧠 CODE BY", url="https://t.me/nihh_all")
+        ]])
+    
+    )
 
 # Helper function to display progress in Telegram with 10 graphical blocks
 # Example: Check cancellation in a loop
