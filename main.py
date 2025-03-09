@@ -1,29 +1,45 @@
+from flask import Flask
+import threading
 import subprocess
 import time
-import signal
-import sys
+import requests
 
-def handle_signal(sig, frame):
-    """Handle termination signals gracefully."""
-    print("Shutdown signal received. Exiting...")
-    sys.exit(0)
+app = Flask(__name__)
 
-# Register signal handlers
-signal.signal(signal.SIGTERM, handle_signal)
-signal.signal(signal.SIGINT, handle_signal)
+@app.route("/")
+def health_check():
+    return "OK", 200  # Respond to health check pings
+
+def keep_alive():
+    """Pings the bot periodically to prevent the instance from sleeping."""
+    while True:
+        try:
+            requests.get("http://127.0.0.1:8000")  # Ping itself
+        except Exception as e:
+            print(f"Ping failed: {e}")
+        time.sleep(300)  # Ping every 5 minutes
 
 def start_bot():
-    """Starts the bot as a subprocess and restarts it if it crashes."""
+    """Runs the bot and restarts if it crashes."""
     while True:
         print("Starting the bot...")
         try:
             process = subprocess.Popen(["python", "PDF_Bot.py"])
             process.wait()
         except Exception as e:
-            print(f"Error occurred: {e}")
+            print(f"Bot crashed: {e}")
 
-        print("Bot stopped. Restarting in 5 seconds...")
+        print("Restarting bot in 5 seconds...")
         time.sleep(5)
 
 if __name__ == "__main__":
-    start_bot()
+    # Run bot in a separate thread
+    bot_thread = threading.Thread(target=start_bot, daemon=True)
+    bot_thread.start()
+
+    # Run keep-alive function in a separate thread
+    keep_alive_thread = threading.Thread(target=keep_alive, daemon=True)
+    keep_alive_thread.start()
+
+    # Start Flask server
+    app.run(host="0.0.0.0", port=8000)
