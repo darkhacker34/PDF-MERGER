@@ -11,6 +11,17 @@ import asyncio  # Import asyncio for handling locks
 from flask import Flask, jsonify, send_file
 import threading
 import requests
+import signal
+import sys
+
+def handle_signal(sig, frame):
+    print("Shutdown signal received. Exiting gracefully...")
+    sys.exit(0)
+
+# Register signal handlers
+signal.signal(signal.SIGTERM, handle_signal)
+signal.signal(signal.SIGINT, handle_signal)
+
 
 
 # Logging setup
